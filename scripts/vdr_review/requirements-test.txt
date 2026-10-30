@@ -1,0 +1,2 @@
+# Core source-build and synthetic tests only; no browser install.
+pytest==9.1.1

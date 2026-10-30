@@ -1,0 +1,32 @@
+# Python / build outputs
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+output/
+_site/
+
+# Local notes and handoff (never public)
+*.local.md
+local/
+
+# Case material must never enter this public repo:
+# VDR recordings/logs, exported audio, transcripts, case files, AIS exports, documents
+*.dat
+*.log
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.mp4
+*.srt
+*.vtt
+*.vdr.json
+*_轉錄時間對照.json
+*_來源清單.json
+*.csv
+*.zip
+*.pdf
+*.doc
+*.docx
+*.odt

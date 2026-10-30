@@ -1,0 +1,125 @@
+name: vdr-release
+
+# Only a version tag publishes. Run by hand to release an existing tag again, for
+# example after a failed deployment; running from main also passes the default
+# github-pages rule, which allows only the default branch until a tag rule is added.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to release again, for example v1.0.0
+        required: true
+        type: string
+
+# Each job below grants only what it needs.
+permissions: {}
+
+concurrency:
+  group: vdr-release
+  cancel-in-progress: false
+
+env:
+  # Shell steps read this variable; the tag is never expanded into a script.
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      PYTHONUTF8: "1"
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Check that the tag matches VERSION
+        run: python scripts/vdr_review/build.py --check-tag "$RELEASE_TAG"
+
+      - name: Check that only allowlisted, case-free files are published
+        run: python scripts/vdr_review/check_public.py
+
+      - name: Install codec reference and minimal test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          node --version
+          ffmpeg -version
+          python -m pip install -r scripts/vdr_review/requirements-test.txt
+
+      - name: Test
+        run: python scripts/vdr_review/run_tests.py --root . --basetemp "${{ runner.temp }}/vdr-pytest"
+
+      - name: Build the site
+        run: python scripts/vdr_review/build.py --site _site
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          retention-days: 7
+
+      - name: Keep the same files for the release
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: _site
+          if-no-files-found: error
+          retention-days: 7
+
+  # Deploy before releasing: if Pages is not set up yet, nothing has been published.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
+
+  release:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-files
+          path: site
+
+      # GitHub renames asset files with non-alphanumeric characters, so the ZIP gets an ASCII name.
+      - name: Publish the deployed files as a GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir assets
+          cp site/vdr-review.html site/version.json assets/
+          cp site/*.zip assets/vdr-review-colleague.zip
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" assets/* --verify-tag --generate-notes --title "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          fi

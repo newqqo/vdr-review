@@ -1,0 +1,248 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title data-i18n="app.title">VDR 核聽工具</title>
+<style>/*LEAFLET_CSS*/</style>
+<style>
+:root{--bg:#f7f8f6;--fg:#1d2b2f;--mut:#5b6b6f;--grid:#d9e0de;--acc:#277a7b}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+main{max-width:1920px;margin:0 auto;padding:10px 14px}
+h1{font-size:19px;margin:2px 0}.note{color:var(--mut);font-size:12.5px}
+.app-header{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.app-header select{max-width:190px}.app-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap}#updatePanel{margin:4px 0}#updatePanel[hidden]{display:none}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:8px 0}
+.clock{font:600 24px/1 ui-monospace,Consolas,monospace}
+.vals span{display:inline-block;min-width:150px;font:14px ui-monospace,Consolas,monospace}
+#dist{font-weight:700;color:#b03a2e}
+#map{height:470px;border:1px solid var(--grid);border-radius:6px}
+#cv{width:100%;height:300px;background:#fff;border:1px solid var(--grid);border-radius:6px;cursor:crosshair;margin-top:8px}
+audio{width:100%}button,select,input{font:inherit;padding:3px 9px}
+#events{width:100%;height:110px;font:13px ui-monospace,Consolas,monospace;box-sizing:border-box}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(480px,1.15fr);gap:14px;align-items:start}
+#playbackBar{position:sticky;top:0;z-index:900;background:#fff;border:1px solid var(--grid);border-radius:8px;padding:7px 12px;margin:8px 0 12px;box-shadow:0 2px 8px #1838320a}
+#playbackBar .bar{margin:0;gap:6px 9px}#playbackBar .clock{font-size:21px}#playbackBar .go{font-size:14px;padding:5px 16px}
+#playbackBar input[type=range]{display:block;width:100%;margin:7px 0 1px}#playbackBar .jump-time{margin-left:auto}
+#sessioninfo{display:block;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#mapstatus:empty,#tilest:empty{display:none}
+#navigationPane{min-width:0}#navigationPane #map{height:clamp(240px,42vh,480px);position:relative;isolation:isolate;z-index:0}#mapstatus{margin:5px 0;font-size:12px;color:var(--mut)}
+.leaflet-control-layers-toggle{background-image:none!important;width:auto!important;height:auto!important;padding:3px 9px;line-height:24px;font-size:13px;text-align:center}.leaflet-control-layers-toggle:empty::after{content:'☰'}
+.secondary{margin:8px 0;padding:8px 10px;border:1px solid var(--grid);border-radius:6px;background:#fff}.secondary>summary{font-size:13px;cursor:pointer;color:var(--mut)}.secondary[open]>summary{margin-bottom:7px}
+#transcriptionFlow{margin-top:12px}#transcriptionFlow>summary{cursor:pointer;font-weight:600}#transcriptionFlow[open]>summary{margin-bottom:8px}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #277a7b;outline-offset:3px}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr}#navigationPane #map{height:32vh;min-height:220px}#edpanel{position:relative!important;top:0!important}#playbackBar .jump-time{margin-left:0}}
+@media (max-width:600px){main{padding:7px}.card{padding:10px}.clock{font-size:18px}#playbackBar .jump-time{display:none}#playbackBar .clock{font-size:18px}#sessioninfo{max-width:85vw}}
+.card{background:#fff;border:1px solid var(--grid);border-radius:8px;padding:12px 16px;margin:10px 0}
+.card h2{font-size:16px;margin:0 0 6px}.step{display:grid;grid-template-columns:28px 1fr;gap:8px;margin:10px 0}
+.num{width:24px;height:24px;border-radius:50%;background:var(--acc);color:#fff;text-align:center;font-weight:700;line-height:24px}
+.sum{font:13px ui-monospace,Consolas,monospace;white-space:pre-wrap;background:#f3f6f5;border-radius:6px;padding:6px 10px;margin-top:6px}
+.err{color:#c92a2a}.ok{color:#2f9e44}
+.progress{height:8px;background:#e6ecea;border-radius:4px;overflow:hidden;margin-top:6px}.progress div{height:8px;background:var(--acc);width:0}
+.go{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 18px;font-weight:700;cursor:pointer}.go:disabled{background:#9fb5b3}
+.set{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13.5px}.set input[type=number]{width:62px}
+#edpanel{position:sticky;top:100px;display:flex;flex-direction:column;background:#fff;border:1px solid var(--grid);border-radius:8px;min-width:0}
+.edhead{flex:none;padding:6px 10px;border-bottom:1px solid var(--grid);border-radius:8px 8px 0 0;background:#fbfcfb}
+.edfoot{flex:none;padding:8px 10px;border-top:1px solid var(--grid);background:#fbfcfb}.edfoot #edcomposer{margin-top:0}.edfoot #deliveryOptions{margin:6px 0 0}
+.edtitle{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.edtitle h2{font-size:16px;margin:0}
+.ed-actions{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-left:auto}#edsave{display:block;flex-basis:100%;font-size:12px}#reviewOptions{margin:4px 0}#reviewOptions>summary{font-size:12px}
+#edprog{font:13px ui-monospace,Consolas,monospace;color:var(--mut)}
+.prog{height:4px;background:#e6ecea;border-radius:2px;margin:4px 0 4px}#edbar{height:4px;background:#2f9e44;border-radius:2px;width:0}
+.erow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:3px 0}
+.erow input,.erow select{font-size:13px;padding:2px 6px;border:1px solid var(--grid);border-radius:5px;background:#fff}
+#edq{flex:1;min-width:120px}
+.chip{border:1px solid var(--c,#b8c2c0);background:#fff;color:#1d2b2f;border-radius:999px;padding:1px 10px;font-size:13px;cursor:pointer;box-shadow:inset 4px 0 0 var(--c,#b8c2c0)}
+.chip b{color:var(--c);font-weight:700}.chip:hover{background:#f3f6f5}.chip.ghost{box-shadow:none;color:var(--mut)}
+#spkadd{font-size:13px;padding:1px 8px;border:1px dashed var(--grid);border-radius:999px}
+#edstrip{width:100%;height:46px;border:1px solid var(--grid);border-radius:6px;cursor:pointer;background:#f1f4f3;margin-top:4px}
+#vhfseg{flex-wrap:nowrap;overflow-x:auto;padding:3px 0;gap:5px;font-size:12px}#vhfseg>*{flex-shrink:0}#vhfseg .activity-scope{font-size:11.5px;color:var(--mut)}
+#edcomposer{border:1px solid #a9ceca;background:#f1f8f6;border-radius:7px;padding:6px 8px;margin-top:6px}#edcomposer .erow{margin:0 0 4px}#edcomposeTime{font:12px ui-monospace,Consolas,monospace;color:var(--mut)}
+#edcompose{display:block;width:100%;box-sizing:border-box;resize:vertical;min-height:54px;max-height:160px;border:1px solid var(--grid);border-radius:5px;padding:5px 7px;font:15px/1.5 "Noto Sans TC","Microsoft JhengHei",sans-serif;background:#fff}#edcomposeAdd{margin-left:auto}
+#waveDetails{margin-top:8px;border:1px solid var(--grid);border-radius:6px;background:#f6f8f7;padding:5px 7px}#waveDetails>summary{font-size:13px;font-weight:600;cursor:pointer}#waveDetails[open]>summary{margin-bottom:4px}
+#edwaves{min-width:0;overflow:hidden}
+.wave-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-size:12px;margin-bottom:4px}.wave-toolbar select{font-size:12px;padding:1px 4px}
+#edwaveStatus{font-size:11.5px;color:var(--mut)}#edwaveStatus.err{color:#b42318}
+.wave-track{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:stretch;gap:4px;border:1px solid transparent;border-radius:4px;margin:2px 0;background:#fff}
+.wave-track.is-active{border-color:var(--acc);box-shadow:inset 3px 0 0 var(--acc);background:#edf7f5}
+.wave-label{border:0;background:transparent;text-align:left;padding:3px 6px;font-size:12px;line-height:1.25;white-space:normal;overflow-wrap:anywhere;cursor:pointer;color:var(--fg)}
+.wave-label strong{display:block}.wave-track.is-active .wave-label{font-weight:700;color:var(--acc)}
+.wave-canvas{display:block;width:100%;height:42px;cursor:crosshair;border-radius:3px;min-width:0}.wave-track.is-active .wave-canvas{height:50px}
+@media(max-width:650px){.wave-track{grid-template-columns:80px minmax(0,1fr)}.wave-label{font-size:11px}}
+#edtool{display:flex;flex-wrap:wrap;gap:3px;align-items:center;background:#f3f7f6;border:1px solid var(--grid);border-radius:6px;padding:3px 5px;margin-top:5px}
+#edtool.off{display:none}#edtool button{font-size:12.5px;padding:1px 7px;border:1px solid var(--grid);border-radius:5px;background:#fff;cursor:pointer}
+#edtool button:hover{background:#e9f2f0}#edtool .sep{width:1px;height:20px;background:var(--grid);margin:0 3px}
+#edtool input{width:76px;font:12.5px ui-monospace,Consolas,monospace;padding:2px 4px;border:1px solid var(--grid);border-radius:5px}
+#tlabel{font:12px ui-monospace,Consolas,monospace;color:var(--mut);margin-right:4px}
+#edtool .stb.on{color:#fff;font-weight:700}#edtool .stb[data-st="0"].on{background:#8a9a97}#edtool .stb[data-st="1"].on{background:#2f9e44}#edtool .stb[data-st="2"].on{background:#e8a317}#edtool .stb[data-st="3"].on{background:#c92a2a}
+details.files summary{cursor:pointer;color:var(--mut);font-size:13px}details.files .erow button{font-size:12.5px}
+#edlist{overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;flex:none;height:clamp(320px,calc(100vh - 430px),700px);min-height:320px;box-sizing:border-box;padding:6px 10px 20px}
+@media(max-width:1000px){#edlist{height:clamp(360px,55vh,640px)}}
+@media(max-height:600px){#edpanel{position:relative;top:0}#edlist{height:360px}}
+.er{border:1px solid #e3e9e7;border-left:5px solid var(--c,#b8c2c0);border-radius:6px;padding:4px 8px 6px;margin:6px 0;background:#fff;transition:background .15s}
+.er:hover{border-color:#cdd8d5}.er.cur{background:#f0f7f5}.er.act{outline:2px solid var(--acc);outline-offset:1px}.er.ovl{background-image:linear-gradient(90deg,#eef4ff,#fff 60%)}
+.er.is-playing{background:#d9f1ec;background-image:none;border-color:#0d7468;box-shadow:inset 0 0 0 1px #0d7468}.er.is-playing .tx{color:#103e37}
+.cue-playstate{display:inline-block;white-space:nowrap;background:#0d7468;color:#fff;border-radius:4px;padding:1px 7px;font-size:12px;font-weight:700}.cue-playstate[hidden]{display:none}.er.cur:not(.is-playing) .cue-playstate{background:#dce9e5;color:#395c53}
+.ehd{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-size:12.5px;margin-bottom:2px}
+.etime{border:0;background:#eef3f2;border-radius:5px;padding:1px 8px;font:12.5px ui-monospace,Consolas,monospace;cursor:pointer}.etime:hover{background:#dbe9e6}
+.elt{font:12px ui-monospace,Consolas,monospace;color:var(--mut)}
+.espk{font-weight:700;color:var(--c)}.eno{margin-left:auto;color:#a8b4b1;font:11px ui-monospace,Consolas,monospace}
+.est{font-size:11.5px;border-radius:4px;padding:0 5px}.est.s0{color:#8a9a97;border:1px solid #d6dedc}.est.s1{background:#2f9e44;color:#fff}.est.s2{background:#e8a317;color:#fff}.est.s3{background:#c92a2a;color:#fff}
+.esug{font-size:11.5px;border:1px dashed #9aa9a6;background:#fff;color:#5b6b6f;border-radius:4px;padding:0 6px;cursor:pointer}.esug.hi{border-style:solid;border-color:var(--acc);color:var(--acc)}.esug:hover{background:#e9f2f0}
+.eflag{font-size:11.5px;color:#3b5bdb;border:1px solid #bac8ff;border-radius:4px;padding:0 5px}
+.er .tx{width:100%;box-sizing:border-box;border:1px solid transparent;border-radius:5px;padding:3px 6px;font:17px/1.6 "Noto Sans TC","Microsoft JhengHei",sans-serif;resize:none;overflow:hidden;background:transparent}
+.er .tx:hover{border-color:#e3e9e7}.er .tx:focus{border-color:var(--acc);background:#fff;outline:none}
+.eorig{font-size:12px;color:#8a9a97;padding:0 6px}.empty{color:var(--mut);padding:20px;text-align:center}
+.keys{font-size:12px;color:var(--mut);padding:5px 12px;border-top:1px solid var(--grid);background:#fbfcfb}
+kbd{border:1px solid #cdd8d5;border-bottom-width:2px;border-radius:3px;padding:0 4px;font-size:11px;background:#fff}
+.tc{border:1px solid #e8a317;background:#fff8e6;color:#8a5a00;border-radius:999px;padding:0 10px;font-size:13px;cursor:pointer}.tc.ok{border-color:#2f9e44;background:#ebf8ee;color:#22753a}
+#tcpanel{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13.5px;background:#fff8e6;border:1px solid #f0d9a0;border-radius:6px;padding:6px 10px;margin:4px 0}#tcpanel[hidden]{display:none}
+#datast{font-size:13.5px;margin:4px 0}#datast .chip{margin:0 2px}.warn{color:#b35c00}
+details#about{margin-top:18px}details#about pre{max-height:240px;overflow:auto;background:#f3f6f5;padding:8px;font-size:11.5px;white-space:pre-wrap}
+.bigbtn{display:inline-block;background:var(--acc);color:#fff;border-radius:8px;padding:8px 18px;font-weight:700;cursor:pointer;margin:6px 10px 4px 0}.bigbtn:hover{filter:brightness(1.08)}
+.btn2{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:5px 14px;cursor:pointer;margin:6px 10px 4px 0;background:#fff}
+.go{font-size:16px;padding:8px 26px}
+.ok{color:#2f9e44}.mode{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:14px;border:1px solid var(--grid);border-radius:999px;padding:3px 12px;background:#fff;cursor:pointer}
+.pbtn{font-size:13.5px;border:1px solid var(--acc);color:var(--acc);background:#fff;border-radius:6px;padding:2px 10px;cursor:pointer}.pbtn:hover{background:#e9f2f0}
+details.menu{position:relative;display:inline-block}details.menu>summary{list-style:none;font-size:13.5px;border:1px solid var(--grid);border-radius:6px;padding:2px 10px;cursor:pointer;color:var(--fg);background:#fff}
+details.menu>summary::-webkit-details-marker{display:none}
+details.menu>div{position:absolute;z-index:1000;right:0;top:28px;background:#fff;border:1px solid var(--grid);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);padding:6px;display:flex;flex-direction:column;gap:4px;min-width:230px}
+details.menu>div button{text-align:left;font-size:13.5px;border:0;background:#fff;padding:5px 8px;border-radius:5px;cursor:pointer}details.menu>div button:hover{background:#eef3f2}
+body:not(.editing) .adv{display:none!important}body.editing .simple-only{display:none!important}
+.legend{font-size:12.5px;color:var(--mut)}.sw{display:inline-block;width:14px;height:10px;margin:0 4px 0 10px;vertical-align:middle}
+</style></head><body><main>
+<header class="app-header"><h1 data-i18n="app.title">VDR 核聽工具</h1><div class="app-tools"><button id="updateAction" class="pbtn" data-i18n="update.check">檢查更新</button><label>🌐 <select id="uiLanguage" aria-label="介面語言" data-i18n-aria-label="ui.language"><option value="zh-TW">繁體中文</option><option value="en">English</option><option value="ja">日本語</option><option value="zh-CN">简体中文</option></select></label></div></header>
+<div id="updatePanel" class="bar note" hidden><span id="updateStatus" role="status"></span><a id="updateNotes" target="_blank" rel="noopener noreferrer" data-i18n="update.notes" hidden>查看更新內容</a><button id="updateDownload" class="pbtn" data-i18n="update.download" hidden>下載新版</button><button id="updateSave" class="pbtn" data-i18n="update.save" hidden>儲存檔案</button></div>
+<div id="sourceNotice" class="card err" data-i18n="ui.templateNotice">這是開發模板，不能直接使用。請開啟 output 內已建置的 VDR 工具，或同事包內的 HTML。已建置版本若仍顯示本訊息，表示程式未正常啟動。</div>
+
+<section id="loadpane" class="card">
+ <h2 data-i18n="ui.start">開始</h2>
+ <div class="step"><div class="num">1</div><div><b data-i18n="ui.openRecording">開啟錄音</b><br>
+  <label class="bigbtn" title="選擇含 Audio／Log 或 Internal_Storage 的單一 VDR 資料夾；只讀取本機原檔" data-i18n-title="ui.folderHint"><span data-i18n="ui.chooseFolder">📁 選擇 VDR 資料夾</span><input type="file" id="fdir" webkitdirectory multiple hidden></label>
+  <div id="dirsum" class="sum" hidden></div></div></div>
+ <div class="step"><div class="num">2</div><div><b data-i18n="ui.timeWindow">選擇時段</b>
+  <div class="set"><label><span data-i18n="ui.date">日期</span> <input id="evtdate" type="date"></label><label><span data-i18n="ui.time">時間</span> <input id="evt" size="6" placeholder="18:43"></label>
+   <label><span data-i18n="ui.beforeAfter">前後各</span> <select id="span"><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="60">60</option><option value="120">120</option></select> <span data-i18n="ui.minutes">分鐘</span></label>
+   <label><span data-i18n="ui.timezone">顯示時區 UTC</span> <input id="tz" type="number" value="8" min="-12" max="14" step="0.25" style="width:58px"></label>
+   <button id="allRecording" type="button" data-i18n="ui.wholeRecording">整份錄音</button><span id="winsum" class="note" data-i18n="ui.defaultWindow">未填時間：開啟整份錄音</span></div>
+  <details><summary class="note" data-i18n="ui.customWindow">指定起訖／案件名稱</summary>
+   <div class="set"><label><span data-i18n="ui.begin">開始</span> <input id="wstart" size="19" placeholder="2026-01-01 08:20:00"></label><label><span data-i18n="ui.end">結束</span> <input id="wend" size="19" placeholder="2026-01-01 08:58:00"></label>
+   <label><span data-i18n="ui.filenamePrefix">檔名開頭</span> <input id="cname" size="14" placeholder="預設為船名" data-i18n-placeholder="ui.vesselNameDefault"></label></div>
+   </details></div></div>
+ <div class="step"><div class="num">3</div><div><b data-i18n="ui.aisTracks">AIS 航跡</b> <span data-i18n="ui.optional">（選用）</span><br>
+  <label class="btn2"><span data-i18n="ui.chooseCSV">選擇 CSV／ZIP</span><input type="file" id="fcsv" accept=".csv,.zip" multiple hidden></label>
+  <div id="csvsum" class="sum" hidden></div></div></div>
+ <div class="step"><div class="num">4</div><div><button id="loadbtn" class="go" disabled data-i18n="ui.load">開始載入</button> <span id="loadmsg" class="note"></span><div class="progress"><div id="loadbar"></div></div></div></div>
+</section>
+
+<section id="mainpane" hidden>
+<span class="note" id="sessioninfo"></span>
+<div id="playbackBar" aria-label="播放控制" data-i18n-aria-label="ui.playbackControls">
+<div class="bar">
+ <button id="playbtn" class="go" data-i18n="ui.play">▶ 播放</button>
+ <label><span data-i18n="ui.channel">聲道</span> <select id="ch"></select></label>
+ <span class="clock" id="clock" title="校正後時間；未校正時等於依檔名推定的時間" data-i18n-title="ui.correctedClock">--:--:--</span><button id="tcbtn" class="tc" title="錄音時間校正" data-i18n="ui.uncalibrated" data-i18n-title="ui.calibration">未校正</button>
+ <button data-j="-10" title="倒退10秒" data-i18n-title="ui.back10">−10</button><button data-j="-3" title="倒退3秒" data-i18n-title="ui.back3">−3</button><button data-j="3" title="前進3秒" data-i18n-title="ui.forward3">＋3</button><button data-j="10" title="前進10秒" data-i18n-title="ui.forward10">＋10</button>
+ <span id="playelapsed" class="note">00:00 / 00:00</span><span id="playstatus" class="note" role="status"></span>
+ <label class="jump-time"><input id="go" placeholder="日期時間" data-i18n-placeholder="ui.dateTime" size="18" aria-label="跳至日期時間" data-i18n-aria-label="ui.jumpDateTime"><button id="gobtn" data-i18n="ui.jump">跳轉</button></label>
+</div>
+<input id="seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="整段錄音播放位置" data-i18n-aria-label="ui.seek">
+</div>
+<div id="tcpanel" hidden><b data-i18n="ui.calibration">錄音時間校正</b> <span data-i18n="ui.clockEquation">錄音時間＝檔名推定時間 ＋</span> <input id="tcofs" type="number" step="0.1" style="width:72px"> <span data-i18n="ui.seconds">秒</span>
+ <label><span data-i18n="ui.basis">依據</span> <input id="tcbasis" size="30" placeholder="例：VTS錄音 18:27:14 呼叫，兩邊對時" data-i18n-placeholder="ui.basisExample"></label><button id="tcok" data-i18n="ui.apply">套用</button><button id="tcclr" data-i18n="ui.clear">清除</button>
+ </div>
+<audio id="au" preload="auto" hidden></audio>
+<button id="dataalert" class="pbtn warn" hidden></button>
+<details id="dataDetails" class="secondary"><summary data-i18n="ui.recordingStatus">錄音資料狀態</summary><div id="datast"></div></details>
+<div class="wrap workbench"><div class="left" id="navigationPane" data-always-visible="true" aria-label="船舶航跡" data-i18n-aria-label="ui.vesselTracks">
+<div id="map"></div><div id="mapstatus" role="status"></div><div class="note" id="tilest" hidden></div>
+<details id="waveDetails" open><summary data-i18n="wave.title">聲道波形</summary>
+ <div id="edwaves" aria-label="各聲道同步聲音活動波形" data-i18n-aria-label="ui.waveAria" title="點聲道切軌；點波形跳時間。相對聲音活動不是絕對音量或講者判定；灰底尚未分析，斜線缺段。" data-i18n-title="ui.waveHint">
+  <div class="wave-toolbar"><label><span data-i18n="wave.range">範圍</span> <select id="edwaveScale" aria-label="同步波形顯示範圍" data-i18n-aria-label="ui.waveRange"><option value="30" data-i18n="ui.thirtySeconds">30 秒</option><option value="60" selected data-i18n="ui.oneMinute">1 分鐘</option><option value="120" data-i18n="ui.twoMinutes">2 分鐘</option><option value="300" data-i18n="ui.fiveMinutes">5 分鐘</option></select></label><span id="edwaveStatus" role="status"></span><span id="edwaveRange" class="note"></span></div>
+  <div class="erow" id="vhfseg" aria-label="目前聲道的可視聲音活動段" data-i18n-aria-label="ui.activityAria"></div>
+  <div id="edwaveRows"><canvas id="edwave" class="wave-canvas"></canvas></div>
+ </div>
+</details>
+<details id="navigationDetails" class="secondary"><summary data-i18n="ui.navigationSettings">航行資料／設定</summary>
+<div class="vals"><span id="vsog"></span><span id="vstw"></span><span id="vhdg"></span><span id="dist"></span></div>
+<div class="bar"><label><input type="checkbox" id="follow" checked> <span data-i18n="ui.mapFollow">地圖跟隨</span></label><label><span data-i18n="ui.ghosts">船影</span> <select id="ghost"><option value="0" data-i18n="ui.hide">不顯示</option><option value="10" data-i18n="ui.tenSeconds">10秒</option><option value="20" selected data-i18n="ui.twentySeconds">20秒</option><option value="30" data-i18n="ui.thirtySecondsCompact">30秒</option></select></label></div>
+<div class="legend"><span class="sw" style="background:#00a3a3"></span><span data-i18n="ui.ownVessel">本船</span><span class="sw" style="background:#e07b00"></span><span data-i18n="ui.otherVessel">對方船</span><span class="sw" style="background:#ffe066"></span>AIS</div>
+<details class="card" id="setcard"><summary><b data-i18n="ui.hullSettings">船體模擬設定</b> <span class="note" id="setsum"></span></summary>
+ <div class="set" style="margin-top:8px">
+  <label><span data-i18n="ui.otherVessel">對方船</span> <select id="other"></select></label><label><input type="checkbox" id="fixed"> <span data-i18n="ui.otherMoored">對方靠泊（固定於船位中位數）</span></label>
+ </div>
+ <div class="set" style="margin-top:6px"><span><span data-i18n="ui.ownDimensions">本船 AIS 尺寸</span> A<input type="number" id="oA"> B<input type="number" id="oB"> C<input type="number" id="oC"> D<input type="number" id="oD"></span>
+  <span><span data-i18n="ui.otherDimensions">對方</span> A<input type="number" id="tA"> B<input type="number" id="tB"> C<input type="number" id="tC"> D<input type="number" id="tD"></span><button id="recalc" data-i18n="ui.recalculate">重新計算</button></div>
+ <div class="note" data-i18n="ui.dimensionsHint">A/B/C/D＝AIS 申報之天線至船艏／船艉／左舷／右舷距離（公尺）。船形以矩形加船艏收尖繪製，距離為模型推估。</div>
+</details>
+<canvas id="cv" width="2400" height="600"></canvas>
+<div class="note" data-i18n="ui.chartHint">曲線：綠＝SOG、棕＝STW（左軸，節）；紫＝艏向（右軸）；紅實線＝兩船船體模型距離（0–500 m 對應左軸0–10）；紅虛線＝下方事件標記。點圖跳至該秒。</div>
+<h2 style="font-size:15px;margin:10px 0 4px"><span data-i18n="ui.eventNotes">事件筆記</span> <button id="mark" data-i18n="ui.markNow">記下此刻</button></h2>
+<textarea id="events" placeholder="08:40:00 車鐘 STOP（印表時間，未校時）&#10;08:43:00 報告：接觸" data-i18n-placeholder="ui.eventExample"></textarea>
+<div class="bar"><span class="note" id="evst"></span></div>
+</details>
+</div>
+<aside id="edpanel">
+ <div class="edhead">
+  <div class="edtitle"><h2 data-i18n="review.title">聽寫記錄</h2><span id="edprog"></span><div class="ed-actions"><button id="saveP" class="pbtn" title="儲存到案件主檔" data-i18n="action.save" data-i18n-title="ui.saveHint">儲存案件</button><button id="loadP" class="pbtn" title="開啟同一份錄音的案件進度" data-i18n="action.load" data-i18n-title="ui.loadHint">開啟進度</button><input type="file" id="imJson" accept=".json" hidden></div><span class="note" id="edsave" role="status"></span></div>
+  <div class="prog"><div id="edbar"></div></div>
+  <details id="reviewOptions" class="secondary"><summary data-i18n="ui.reviewOptions">講者／篩選／進階工具</summary>
+  <div class="erow">
+   <input id="edq" placeholder="搜尋內容／講者／原文" data-i18n-placeholder="workbench.searchPlaceholder">
+   <select id="edflt"><option value="all" data-i18n="workbench.filterAll">全部</option><option value="0" data-i18n="review.unreviewed">未核</option><option value="2" data-i18n="review.partial">部分不明</option><option value="3" data-i18n="review.unclear">無法辨識</option><option value="1" data-i18n="review.reviewed">已核</option></select>
+   <select id="edrate" title="播放速度" data-i18n-title="ui.playbackRate"><option value="0.5">0.5×</option><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option></select>
+   <label class="note"><input type="checkbox" id="edloop"> <span data-i18n="ui.loopSentence">循環本句</span></label>
+   <label class="note"><input type="checkbox" id="edfollow" checked> <span data-i18n="ui.followPlayback">跟隨播放</span></label>
+  </div>
+  <div class="erow" id="spkbar"></div>
+  <div class="erow"><label title="只顯示或收起拆句、合併等按鈕；波形起迄線隨時可拖" data-i18n-title="ui.advancedHint"><input type="checkbox" id="editmode"> <span data-i18n="workbench.showAdvanced">顯示進階工具</span></label><button id="edadd" class="chip ghost" data-i18n="ui.blankCue">＋ 空白句</button><button id="edundo" class="chip ghost" title="Alt+Z" data-i18n="ui.undo">↶ 復原</button></div>
+  </details>
+  <canvas id="edstrip" class="adv" title="播放位置前後30秒；綠色底帶＝目前聲道的聲音活動指標，不代表確定發話；彩色色帶＝各句（顏色＝講者，疊話分上下排）；點色帶選句，點空白跳轉" data-i18n-title="ui.stripHint"></canvas>
+  <div id="edtool" class="off">
+   <span id="tlabel"></span>
+   <button data-a="play" title="播放本句（Ctrl+Enter）；播放中再按一次暫停" data-i18n="ui.playCue" data-i18n-title="ui.playCueHint">▶ 播放本句</button><button id="edpp" title="暫停／繼續（Esc 或 Alt+P）" data-i18n="ui.pause" data-i18n-title="ui.toggleHint">⏸ 暫停</button>
+   <span class="adv"><input id="ts" title="起（播放時間 分:秒）" data-i18n-title="ui.startHint"><button data-a="setS" title="起點設為目前播放位置（Alt+[）" data-i18n="ui.startNow" data-i18n-title="ui.startNowHint">起＝現在</button>
+   <input id="te" title="迄（播放時間 分:秒）" data-i18n-title="ui.endHint"><button data-a="setE" title="迄點設為目前播放位置（Alt+]）" data-i18n="ui.endNow" data-i18n-title="ui.endNowHint">迄＝現在</button><button data-a="trim" title="把起訖縮到本句範圍內第一段到最後一段聲音" data-i18n="ui.trim" data-i18n-title="ui.trimHint">修剪靜音</button>
+   <span class="sep"></span>
+   <button data-a="split" title="在文字游標處切開；暫停點在本句內就以暫停點為界（Alt+X）" data-i18n="ui.split" data-i18n-title="ui.splitHint">✂ 分割</button><button data-a="wsplit" title="依本句範圍內一段一段的聲音自動拆句，文字依句號依序填入；適合下令→覆誦→回覆（Alt+W）" data-i18n-title="ui.waveSplitHint"><b data-i18n="ui.waveSplit">依波形拆句</b></button><button data-a="auto" title="依句號、問號、驚嘆號拆成多句，時間依字數比例分配" data-i18n="ui.punctuationSplit" data-i18n-title="ui.punctuationHint">依標點拆句</button><button data-a="extract" title="把選取的文字移成獨立一句，起點＝目前播放位置（Alt+M）" data-i18n="ui.extract" data-i18n-title="ui.extractHint">抽出成新句</button>
+   <button data-a="rep" title="在本句後補一句相同文字的覆誦（Alt+R）" data-i18n="ui.repeat" data-i18n-title="ui.repeatHint">＋ 覆誦</button><button data-a="dup" title="同時段多一列給同時講話的另一人（Alt+C）" data-i18n="ui.overlap" data-i18n-title="ui.overlapHint">＋ 疊話</button>
+   <button data-a="mergeP" data-i18n="ui.mergePrevious">合併上一句</button><button data-a="merge" data-i18n="ui.mergeNext">合併下一句</button>
+   </span><button data-a="del" title="刪除本句（Alt+Delete）；Alt+Z 可復原" data-i18n="action.delete" data-i18n-title="ui.deleteHint">刪除</button><button data-a="clip" title="把本句（前後各多0.3秒）存成WAV，原音（Alt+S）" data-i18n="ui.clip" data-i18n-title="ui.clipHint">⤓ 摘錄原音</button>
+   <button data-a="clipE" title="濾波及放大，供輔助核聽；請對照原音（Alt+Shift+S）" data-i18n="ui.enhancedClip" data-i18n-title="ui.enhancedHint">⤓ 摘錄加強音</button>
+   <span class="sep"></span>
+   <button class="stb adv" data-st="0" data-i18n="review.unreviewed">未核</button><button class="stb" data-st="1" title="Alt+Enter：標已核並跳下一句" data-i18n="review.reviewed" data-i18n-title="ui.reviewedHint">已核</button><button class="stb" data-st="2" title="有部分字聽不清楚" data-i18n="review.partial" data-i18n-title="ui.partialHint">部分不明</button><button class="stb" data-st="3" title="整句聽不出來" data-i18n="review.unclear" data-i18n-title="ui.unclearHint">無法辨識</button>
+  </div>
+  <div id="legacyProgress" class="note" hidden><span data-i18n="ui.legacyFound">找到多份舊版暫存，請選要接續的時段：</span><select id="legacyChoice" aria-label="舊版核聽進度" data-i18n-aria-label="ui.legacyProgress"></select><button id="legacyApply" data-i18n="ui.legacyContinue">接續這份舊進度</button><span data-i18n="ui.othersRetained">（其他份保留未刪）</span></div>
+ </div>
+ <div id="edlist" aria-label="字幕清單" tabindex="0" data-i18n-aria-label="ui.transcriptList"></div>
+ <div class="edfoot">
+  <div id="edcomposer" aria-label="直接聽寫" data-i18n-aria-label="ui.directEntry">
+   <div class="erow"><b data-i18n="workbench.typeLabel">直接打字</b><span id="edcomposeTime"></span><button id="edcomposeAdd" class="pbtn" title="Enter 完成一句；Shift+Enter 換行" data-i18n="workbench.finishCue" data-i18n-title="ui.finishHint">記下一句 ↵</button></div>
+   <textarea id="edcompose" rows="2" placeholder="輸入聽到的內容…" data-i18n-placeholder="workbench.typePlaceholder" aria-label="輸入聽到的內容" data-i18n-aria-label="ui.typeAria" title="起點為開始輸入時的位置；Enter 完成一句，Shift+Enter 換行" data-i18n-title="ui.typeHint"></textarea>
+  </div>
+  <details id="deliveryOptions" class="secondary"><summary data-i18n="ui.exportOther">匯出／其他</summary><div class="erow">
+   <button id="exBundle" class="pbtn" title="一個 ZIP：案件主檔、核聽表格、字幕、本聲道音檔與來源清單" data-i18n="action.exportResults" data-i18n-title="ui.bundleHint">匯出調查成果</button>
+   <details class="menu"><summary data-i18n="ui.exportForOthers">⤓ 匯出給別人</summary><div>
+    <button id="exCsv" data-i18n="ui.csvExport">表格（Excel 可開，全部聲道）</button><button id="exSrt" data-i18n="ui.srtExport">字幕檔 SRT（本聲道、本次時段）</button><button id="exWav" data-i18n="ui.wavExport">整段音檔 WAV＋來源清單（本聲道）</button></div></details>
+   <details class="menu"><summary data-i18n="ui.other">⋯ 其他</summary><div>
+    <button id="imSugBtn" data-i18n="ui.importSpeakerSuggestions">匯入講者建議（聲紋）</button><input type="file" id="imSug" accept=".json" hidden>
+    <button id="edreset" data-i18n="ui.clearChannel">清空本聲道全部句子</button></div></details></div></details>
+ </div>
+ <details id="keyboardHelp" class="keys"><summary data-i18n="ui.shortcuts">快捷鍵</summary><span data-i18n="ui.shortcutHelp">Esc：暫停／繼續 · Ctrl+Enter：播本句 · Alt+↑↓：上下句 · Alt+1–9：講者 · Alt+Enter：已核並下一句 · Alt+X：分割 · Alt+W：依波形拆句 · Alt+M：抽出新句 · Alt+R：覆誦 · Alt+C：疊話 · Alt+S：摘錄 · Alt+Delete：刪句 · Alt+Z：復原</span></details>
+</aside>
+</div>
+<details class="card" id="transcriptionFlow"><summary data-i18n="srt.title">匯出音檔／匯入 SRT</summary>
+ <div class="set"><label><span data-i18n="ui.channel">聲道</span> <select id="exportChannel"></select></label><label><span data-i18n="ui.begin">開始</span> <input id="exportStart" size="19" aria-label="匯出開始日期時間" data-i18n-aria-label="ui.exportStartAria"></label><label><span data-i18n="ui.end">結束</span> <input id="exportEnd" size="19" aria-label="匯出結束日期時間" data-i18n-aria-label="ui.exportEndAria"></label><button id="exportRange" class="pbtn" data-i18n="srt.exportSegment">匯出片段</button><button id="exportWhole" class="pbtn" data-i18n="srt.exportWhole">匯出整份錄音</button></div>
+ <div class="bar"><button id="imSrtBtn" class="pbtn" data-i18n="srt.import">匯入 SRT</button><input type="file" id="imSrt" accept=".srt" hidden><span id="exportstatus" class="note" role="status"></span></div>
+</details>
+</section>
+<details id="about"><summary class="note" data-i18n="ui.about">關於本工具／授權</summary><div class="note">
+ <p><span data-i18n="ui.version">版本：</span><span id="buildinfo"></span> · <span data-i18n="ui.sourceIncluded">原始碼包含在本 HTML 內，可直接檢視或修改。</span></p>
+ <p data-i18n="ui.aboutScope">本機輔助核聽工具，不是原廠播放器或鑑定結果。錄音、逐字稿不會自動上傳；底圖會連網。正式引用前，請以原廠播放或獨立時鐘核對。</p>
+ <p data-i18n="ui.aboutFormats">支援已實作的 JRC G.726／AAC 格式，不代表 1800／1850／1900／1950 全機型已經實機驗證。聲音活動僅供定位，不代表音量、講者或確定發話；灰底未分析，斜線缺段。</p>
+ <p data-i18n="ui.aboutTyping">開始輸入時記錄起點；Enter 完成一句，Shift+Enter 換行。點字幕跳播；已在文字框時可直接改字。選句後可拖波形起迄線，進階工具不限制快捷鍵。</p>
+ <p data-i18n="ui.aboutSrt">匯出 ZIP 包含 WAV 和轉錄時間對照 JSON，可交給任何支援 SRT 的轉錄工具。匯入 SRT 時選同次對照檔。瀏覽器暫存不是正式存檔，請儲存案件主檔。</p>
+ <p data-i18n="ui.aboutChannels">聲道名稱依 JRC 手冊推定（A1＝MIC 1–2、A2＝MIC 3–4；C1＝VHF 1–2），不代表已確認實際麥克風位置。</p>
+ <p data-i18n="ui.appLicense">本工具原創程式碼依 MIT 授權提供。</p><pre>/*LICENSE_MIT*/</pre>
+ <p data-i18n="ui.aboutDecoder">G.726 解碼器移植自 FFmpeg libavcodec/g726.c（Copyright (c) 2004 Roman Shaposhnik；FFmpeg 7.1），改寫為 JavaScript 並依 VDR 分鐘檔逐檔重設，依 GNU LGPL 2.1 或更新版本授權。</p>
+ <pre>/*LICENSE_LGPL*/</pre>
+ <p data-i18n="ui.mapLicense">地圖：Leaflet 1.9.4</p><pre>/*LICENSE_LEAFLET*/</pre>
+</div></details>
+</main>
+<script>/*LEAFLET_JS*/</script>
+<script>/*APP_JS*/</script>
+</body></html>
