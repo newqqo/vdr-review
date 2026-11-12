@@ -12,7 +12,8 @@ function coreError(key, params = {}) {
 
   const AUDIO_RE = /^([AC]\d)(\d{2})(\d{2})(\d{2})\.dat$/i;
   const AAC_RE = /^([AC]\d)_.+\.dat$/i;
-  const LOG_RE = /^L(\d)(\d{2})(\d{2})(\d{2})\.log$/i;
+  // L0mmsscc.log：每筆以分鐘內位移計時；L_mmsscc.log（Internal_Storage）：每筆自帶 UTC 時間。
+  const LOG_RE = /^L(\d|_)(\d{2})(\d{2})(\d{2})\.log$/i;
   const FOLDER_RE = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/;
   const CHANNEL_RE = /^(?:A[1-6]|C[12])$/;
   const AAC_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
@@ -62,7 +63,7 @@ function coreError(key, params = {}) {
         roots.add(recordingRoot(parts));
         const start = pathUtc(fm, m);
         if (folderUtc(fm) == null || start == null) throw coreError('vdr.logTime', { path: e.path });
-        logs.push({ start, name, folder, path: e.path, file: e.file, size: e.size ?? e.file?.size });
+        logs.push({ start, name, folder, path: e.path, file: e.file, size: e.size ?? e.file?.size, format: m[1] === '_' ? 'stamped' : 'offset' });
       } else {
         if (kind === 'log' && /\.log$/i.test(name)) unsupportedLogs.push(e.path);
         skipped.push(e.path);
@@ -176,8 +177,10 @@ function coreError(key, params = {}) {
     return { rate: Math.round(r), exact: Number.isInteger(r), common: common.includes(Math.round(r)) };
   }
 
-  // Log：每筆 0xFFFF＋2 bytes 分鐘內位移（1/256 秒）＋2 bytes 埠號＋NMEA 句＋CRLF
-  function parseLog(bytes, startMs) {
+  // Log（offset）：每筆 0xFFFF＋2 bytes 分鐘內位移（1/256 秒）＋2 bytes 埠號＋NMEA 句＋CRLF
+  // Log（stamped）：見 parseStampedLog；兩者都回傳 [{t（毫秒）, port, s}]
+  function parseLog(bytes, startMs, { format = 'offset', path = '' } = {}) {
+    if (format === 'stamped') return parseStampedLog(bytes, path);
     const out = [];
     for (let i = 0; i + 7 < bytes.length; i++) {
       if (bytes[i] !== 0xFF || bytes[i + 1] !== 0xFF) continue;
@@ -192,6 +195,29 @@ function coreError(key, params = {}) {
       for (let k = i + 6; k < j; k++) s += String.fromCharCode(bytes[k]);
       out.push({ t: startMs + off * 1000 / 256, port, s });
       i = j;
+    }
+    return out;
+  }
+
+  // 44 bytes 檔頭："VoyageDtRec "＋16 位數時間＋01 00＋…＋第32–35 byte 為紀錄區總長（檔長−48）＋CRLF。
+  // 每筆：FF FF＋01 00＋4 bytes 句長（含 CRLF）＋16 位數 UTC 時間（百分之一秒）＋2 bytes 埠號＋6 bytes 未用＋NMEA 句＋00 00 CR LF；
+  // 檔尾再一組 00 00 CR LF。依已觀察的 Internal_Storage 檔案；框架不符即停止，不猜測。
+  function parseStampedLog(bytes, path) {
+    const bad = (position) => { throw coreError('vdr.logFormat', { path, position }); };
+    const suffix = (o) => bytes[o] === 0 && bytes[o + 1] === 0 && bytes[o + 2] === 13 && bytes[o + 3] === 10;
+    if (!(bytes instanceof Uint8Array) || bytes.length < 48 || ascii(bytes, 0, 12) !== 'VoyageDtRec ' || !/^\d{16}$/.test(ascii(bytes, 12, 28))
+        || bytes[28] !== 1 || bytes[29] !== 0 || be32(bytes, 32) !== bytes.length - 48 || bytes[42] !== 13 || bytes[43] !== 10
+        || !suffix(bytes.length - 4)) bad(0);
+    const out = [], end = bytes.length - 4;
+    for (let i = 44; i < end;) {
+      if (i + 36 > end || bytes[i] !== 0xFF || bytes[i + 1] !== 0xFF || bytes[i + 2] !== 1 || bytes[i + 3] !== 0) bad(i);
+      const length = be32(bytes, i + 4), body = i + 32, next = body + length + 4, stamp = ascii(bytes, i + 8, i + 24);
+      const t = /^\d{16}$/.test(stamp) ? strictUtc(+stamp.slice(0, 4), +stamp.slice(4, 6), +stamp.slice(6, 8), +stamp.slice(8, 10),
+        +stamp.slice(10, 12), +stamp.slice(12, 14), +stamp.slice(14, 16) * 10) : null;
+      if (length < 2 || length > 4096 || next > end || t == null || bytes[body + length - 2] !== 13 || bytes[body + length - 1] !== 10
+          || !suffix(body + length)) bad(i);
+      out.push({ t, port: (bytes[i + 24] << 8) | bytes[i + 25], s: ascii(bytes, body, body + length - 2) });
+      i = next;
     }
     return out;
   }

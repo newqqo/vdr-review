@@ -203,3 +203,77 @@ const r=V.decodeAis([{t:0,s:'!AIVDM,1,1,,A,'+payload+',0'},
 console.log(JSON.stringify(r));
 """)
     assert result["positions"] == {"999000001": [[0, 22.5, 120.25, None, None, None, False]]}
+
+
+STAMPED_LOG = """
+// Layout observed on L_ log files: a 44-byte container header, then records of
+// FF FF, 01 00, 4-byte sentence length, 16-digit UTC time, 2-byte port, 6 unused bytes,
+// the sentence with CRLF, and 00 00 CR LF; the file ends with one more 00 00 CR LF.
+function stampedLog(lines,{stamp='2026102309000000',port=3}={}) {
+  const parts=[],text=s=>Buffer.from(s,'latin1');
+  lines.forEach((line,i)=>{
+    const body=text(line+'\\r\\n'),head=new Uint8Array(32),view=new DataView(head.buffer);
+    head.set([0xff,0xff,1,0]);view.setUint32(4,body.length,false);
+    head.set(text(stamp.slice(0,14)+String(i+1).padStart(2,'0')),8);view.setUint16(24,port,false);
+    parts.push(head,body,Uint8Array.from([0,0,13,10]));
+  });
+  const records=Buffer.concat(parts),b=new Uint8Array(48+records.length),view=new DataView(b.buffer);
+  b.set(text('VoyageDtRec '+stamp));b.set([1,0],28);view.setUint32(32,records.length,false);b.set([13,10],42);
+  b.set(records,44);b.set([0,0,13,10],b.length-4);
+  return b;
+}
+function key(fn) { try { fn(); return null; } catch(e) { return e.i18nKey || e.message; } }
+"""
+
+
+def test_stamped_log_records_keep_their_own_utc_time_port_and_sentence():
+    result = run_node(STAMPED_LOG + """
+let bits='0'.repeat(168);
+function set(at,n,v) { bits=bits.slice(0,at)+v.toString(2).padStart(n,'0')+bits.slice(at+n); }
+set(0,6,1);set(8,30,999000001);set(50,10,55);set(61,28,Math.round(120.26*600000));set(89,27,Math.round(22.51*600000));
+set(116,12,730);set(128,9,73);
+let payload='';for(let i=0;i<bits.length;i+=6){const n=parseInt(bits.slice(i,i+6),2);payload+=String.fromCharCode(n+48+(n>39?8:0));}
+const log=stampedLog(['$GPGGA,090000.00,2230.0000,N,12015.0000,E,1,08,1.0,5.0,M,,M,,','$HEHDT,84.2,T','!AIVDM,1,1,,A,'+payload+',0']);
+const recs=V.parseLog(log,0,{format:'stamped',path:'L_000000.log'});
+console.log(JSON.stringify({recs,nav:V.navSeries(recs).series,ais:V.decodeAis(recs).positions}));
+""")
+    assert [(r["t"], r["port"]) for r in result["recs"]] == [
+        (1792746000010, 3), (1792746000020, 3), (1792746000030, 3)]
+    assert result["recs"][1]["s"] == "$HEHDT,84.2,T"
+    assert result["nav"] == [{"utc": 1792746000, "lat": 22.5, "lon": 120.25, "hdg": 84.2}]
+    assert result["ais"] == {"999000001": [[1792746000030, 22.51, 120.26, 5.5, 73, 73, False]]}
+
+
+def test_index_reads_stamped_logs_from_the_internal_storage_layout():
+    result = run_node(STAMPED_LOG + """
+(async()=>{
+  const modern=await V.indexEntries([entry('Ship/Internal_Storage/audio/202610230900/A1_record.dat',aac()),
+    entry('Ship/Internal_Storage/log/202610230900/L_120000.log',stampedLog(['$HEHDT,1,T']))]);
+  const old=V.classify([{path:'Ship/Log/202610230900/L0120000.log'}]);
+  console.log(JSON.stringify({modern:modern.logs.map(l=>[l.start,l.format]),unsupported:modern.unsupportedLogs,
+    old:old.logs.map(l=>[l.start,l.format])}));
+})().catch(e=>{console.error(e);process.exitCode=1});
+""")
+    assert result["modern"] == [[1792746720000, "stamped"]] and result["unsupported"] == []
+    assert result["old"] == [[1792746720000, "offset"]]
+
+
+def test_stamped_log_stops_on_framing_it_does_not_recognize_instead_of_guessing():
+    result = run_node(STAMPED_LOG + """
+const good=stampedLog(['$HEHDT,1,T','$HEHDT,2,T']),cut=(b,f)=>{const c=b.slice();f(c);return c;};
+const cases={
+  ok:good,
+  magic:cut(good,b=>b[0]=0x57),
+  total:cut(good,b=>new DataView(b.buffer).setUint32(32,1,false)),
+  marker:cut(good,b=>b[44]=0),
+  length:cut(good,b=>new DataView(b.buffer).setUint32(48,3,false)),
+  stamp:cut(good,b=>b.set(Buffer.from('2026023009000001'),52)),
+  suffix:cut(good,b=>b[44+32+12]=1),
+  trailer:cut(good,b=>b[b.length-1]=0),
+  truncated:good.slice(0,good.length-10),
+};
+const out={};for(const [k,b] of Object.entries(cases))out[k]=key(()=>V.parseLog(b,0,{format:'stamped',path:'L_000000.log'}).length);
+console.log(JSON.stringify(out));
+""")
+    assert result.pop("ok") is None
+    assert set(result.values()) == {"core.vdr.logFormat"}, result

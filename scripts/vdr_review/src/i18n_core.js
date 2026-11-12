@@ -89,6 +89,7 @@ const rows=[
  ['project.archiveCapacity','成果包超過 ZIP 容量','Archive exceeds ZIP capacity','成果物が ZIP の容量上限を超えます','成果包超过 ZIP 容量'],
  ['vdr.multipleRoots','選到多份 VDR 資料，請只選一艘船、同一份錄音的 Audio／Log 所在資料夾，避免混用。','Multiple VDR sources selected. Choose the Audio/Log folder for one vessel and one recording only.','複数の VDR データが選択されています。同じ船舶・同じ録音の Audio／Log フォルダーだけを選択してください。','选到多份 VDR 数据，请只选一艘船、同一份录音的 Audio／Log 所在文件夹，避免混用。'],
  ['vdr.audioTime','無效的錄音日期、時間或聲道：{path}','Invalid recording date, time or channel: {path}','録音の日付・時刻・チャンネルが無効です：{path}','无效的录音日期、时间或声道：{path}'],
+ ['vdr.logFormat','Log 檔格式不符，已停止讀取：{path}（第 {position} byte）','Log file format does not match; reading stopped: {path} (byte {position})','ログファイルの形式が一致しません。読み込みを中止しました：{path}（{position} バイト目）','Log 文件格式不符，已停止读取：{path}（第 {position} 字节）'],
  ['vdr.logTime','無效的航行資料日期或時間：{path}','Invalid navigation-data date or time: {path}','航海データの日付または時刻が無効です：{path}','无效的航行数据日期或时间：{path}'],
  ['vdr.folderDate','無效的錄音資料夾日期：{path}','Invalid recording-folder date: {path}','録音フォルダーの日付が無効です：{path}','无效的录音文件夹日期：{path}'],
  ['vdr.minuteFile','不是本聲道完整 60 秒的 G.726 分鐘檔：{path}','Not a complete 60-second G.726 file for this channel: {path}','このチャンネルの完全な60秒の G.726 ファイルではありません：{path}','不是本声道完整 60 秒的 G.726 分钟文件：{path}'],

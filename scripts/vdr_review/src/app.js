@@ -191,7 +191,7 @@ $('loadbtn').onclick = async () => {
     text('loadmsg', 'readNavigation');
     const recs = []; S.logSources = [];
     const logs = S.cls.logs.filter((l) => l.start < W1 + 600000 && l.start + 60000 > W0 - 600000);
-    for (const l of logs) { const buf = await l.file.arrayBuffer(); const r = VDR.parseLog(new Uint8Array(buf), l.start); for (const x of r) recs.push(x); const hash = await sha256(buf); if (hash !== l.sha256) throw uiError('sourceChanged', { path: l.path }); S.logSources.push({ file: l.path, bytes: buf.byteLength, sha256: hash }); }
+    for (const l of logs) { const buf = await l.file.arrayBuffer(); const r = VDR.parseLog(new Uint8Array(buf), l.start, { format: l.format, path: l.path }); for (const x of r) recs.push(x); const hash = await sha256(buf); if (hash !== l.sha256) throw uiError('sourceChanged', { path: l.path }); S.logSources.push({ file: l.path, bytes: buf.byteLength, sha256: hash }); }
     const nav = VDR.navSeries(recs), ais = VDR.decodeAis(recs);
     text('loadmsg', 'timeline');
     const store = VDRStream.createStore({ audio: S.cls.audio, W0, W1, decodeG726: decodeChannel, onUpdate: ch => { if (S.refresh) S.refresh(ch); } });
