@@ -114,6 +114,13 @@ $('tz').addEventListener('change', () => {
 });
 
 // ---------- 3. AIS CSV ----------
+// VDR and GateHouse tracks are never merged: their clocks and receivers differ. VDR shares
+// the recording's clock, so it wins by default; GateHouse fills vessels the VDR did not receive.
+const AIS_MODES = ['vdr-first', 'vdr', 'gatehouse'];
+function aisTrack(sources, mmsi, mode) {
+  const vdr = sources.vdr[mmsi] || null, gatehouse = sources.gatehouse[mmsi] || null;
+  return mode === 'vdr' ? vdr : mode === 'gatehouse' ? gatehouse : vdr || gatehouse;
+}
 // Times without a zone use the zone field, so keep the text and parse it again when the zone changes.
 function parseAis(zone) {
   if (!S.csvTexts || (S.csv && S.csvZone === zone)) return;
@@ -259,16 +266,20 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   }
   const ownHdgAt = (sec) => { for (const d of [0, -1, 1, -2, 2]) { const o = navBy.get(sec + d); if (o && o.hdg != null) return o.hdg; } return null; };
 
-  // 候選對方船：VDR 收到的 AIS ＋ CSV 航跡
-  const tracks = Object.create(null), names = Object.create(null);
-  for (const [m, arr] of Object.entries(ais.positions)) if (m !== ownM) tracks[m] = arr.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]);
+  // 候選對方船：VDR 收到的 AIS 與 CSV 航跡分開保存，依「AIS 來源」選用（見 aisTrack）
+  const aisSources = { vdr: Object.create(null), gatehouse: Object.create(null) }, names = Object.create(null);
+  for (const [m, arr] of Object.entries(ais.positions)) if (m !== ownM) aisSources.vdr[m] = arr.map((r) => [r[0], r[1], r[2], r[3], r[4], r[5]]);
   for (const [m, st] of Object.entries(ais.statics)) if (st.name) names[m] = st.name;
   if (S.csv) for (const [m, arr] of Object.entries(S.csv.tracks)) {
     if (m === ownM) continue;
     const inWin = arr.filter((r) => r[0] >= W0 - 600000 && r[0] <= W1 + 600000);
-    if (inWin.length) tracks[m] = (tracks[m] || []).concat(inWin).sort((a, b) => a[0] - b[0]);
+    if (inWin.length) aisSources.gatehouse[m] = inWin;
     if (S.csv.names[m] && !names[m]) names[m] = S.csv.names[m];
   }
+  const tracks = Object.create(null);
+  for (const m of new Set([...Object.keys(aisSources.vdr), ...Object.keys(aisSources.gatehouse)])) tracks[m] = aisTrack(aisSources, m, 'vdr-first');
+  const sourceTag = (m) => tr(aisSources.vdr[m] && aisSources.gatehouse[m] ? 'aisBoth' : aisSources.vdr[m] ? 'aisVdr' : 'aisGatehouse');
+  const usedSource = () => !otherTrack ? null : otherTrack === aisSources.vdr[osel.value] ? 'vdr' : 'gatehouse';
   const MLAT = 111132;
   const ownMid = own.length ? own[Math.floor(own.length / 2)] : [0, 22.6, 120.3];
   const MLON = 111320 * Math.cos(ownMid[1] * Math.PI / 180);
@@ -288,7 +299,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   osel.innerHTML = '<option value=""></option>' + cands.slice(0, 25).map(([m]) => '<option value="' + esc(m) + '"></option>').join('');
   function candidateLabels() {
     osel.options[0].textContent = tr('otherNone');
-    cands.slice(0, 25).forEach(([m, d], i) => { osel.options[i + 1].textContent = tr('candidate', { name: names[m] || tr('unknownVessel'), mmsi: m, distance: Math.round(d) }); });
+    cands.slice(0, 25).forEach(([m, d], i) => { osel.options[i + 1].textContent = tr('candidate', { name: names[m] || tr('unknownVessel'), mmsi: m, distance: Math.round(d) }) + ' · ' + sourceTag(m); });
   }
   candidateLabels();
   const setDims = (p, st) => { for (const k of ['A', 'B', 'C', 'D']) $(p + k).value = st && st[k] ? st[k] : ''; };
@@ -296,12 +307,13 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
 
   // 事件標記與設定（存瀏覽器；也隨編輯檔匯出）
   const extra = {
-    get: () => ({ events: $('events').value, other: osel.value, fixed: $('fixed').checked, time_offset_s: OFS, time_offset_basis: OFS_BASIS,
+    get: () => ({ events: $('events').value, other: osel.value, ais_source: $('aisSource').value, fixed: $('fixed').checked, time_offset_s: OFS, time_offset_basis: OFS_BASIS,
                   own_dims: ['A', 'B', 'C', 'D'].map((k) => +$('o' + k).value || null), other_dims: ['A', 'B', 'C', 'D'].map((k) => +$('t' + k).value || null), transcription_exports: exportHistory }),
     set: (input) => {
       const x = { ...defaultExtra, ...input };
       exportHistory = Array.isArray(x.transcription_exports) ? x.transcription_exports.slice(-100) : [];
       if (x.events != null) $('events').value = x.events;
+      $('aisSource').value = AIS_MODES.includes(x.ais_source) ? x.ais_source : 'vdr-first';
       osel.value = [...osel.options].some((o) => o.value === x.other) ? x.other : '';
       otherChanged();
       if (x.fixed != null) $('fixed').checked = x.fixed;
@@ -319,7 +331,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   let H = [], otherFixed = null, otherTrack = null, otherSt = null;
   function otherChanged() {
     const m = osel.value;
-    otherTrack = m ? tracks[m] : null;
+    otherTrack = m ? aisTrack(aisSources, m, $('aisSource').value) : null;
     otherSt = m ? ais.statics[m] : null;
     setDims('t', otherSt);
     if (otherTrack && otherTrack.length) {
@@ -363,7 +375,8 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   }
   function renderSetSummary(od = dims('o'), td = dims('t'), mn = null) {
     if (!mn) { const ds = H.filter(r => r[4] != null); mn = ds.length ? ds.reduce((a, r) => r[4] < a[4] ? r : a) : null; }
-    rawText('setsum', (osel.value ? tr('otherSelected', { name: names[osel.value] || osel.value }) + ($('fixed').checked && otherFixed ? tr('fixedPosition', { distance: otherFixed.sd.toFixed(1) }) : tr('interpolated')) : tr('noOther')) +
+    rawText('setsum', (osel.value ? tr('otherSelected', { name: names[osel.value] || osel.value }) + (!otherTrack ? tr('otherNoSourceData')
+      : ' · ' + tr(usedSource() === 'vdr' ? 'aisVdr' : 'aisGatehouse') + ($('fixed').checked && otherFixed ? tr('fixedPosition', { distance: otherFixed.sd.toFixed(1) }) : tr('interpolated'))) : tr('noOther')) +
       (!od ? ' | ' + tr('missingOwnDimensions') : '') + (osel.value && !td ? ' | ' + tr('missingOtherDimensions') : '') +
       (mn ? ' | ' + tr('modelClosest', { distance: mn[4] < 0.05 ? tr('modelOverlap') : mn[4].toFixed(0) + ' m', time: fmtClock(mn[0]).slice(0, 8) }) : ''));
   }
@@ -427,6 +440,8 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   const hullLL = (lat, lon, hdg, st) => DSP.hullXY((lon - ownMid[2]) * MLON, (lat - ownMid[1]) * MLAT, hdg, st).map(toLL);
   const ownPoly = L.polygon([], { color: '#00a3a3', weight: 3, fillOpacity: 0.45 }).addTo(map);
   const othPoly = L.polygon([], { color: '#e07b00', weight: 2, fillOpacity: 0.35 }).addTo(map);
+  // Both sources of the selected vessel stay visible (VDR solid, GateHouse dashed); the one in use is drawn bolder.
+  const othTracks = L.layerGroup().addTo(map);
   // A position does not require AIS dimensions. The small symbol is a locator,
   // not a vessel-size model; a missing heading is shown as a dot, not guessed.
   const ownMarker = L.marker([0, 0], { interactive: false, zIndexOffset: 500,
@@ -434,7 +449,17 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
       html: '<span style="display:block;text-align:center;line-height:24px;font-size:24px;color:#00a3a3;text-shadow:0 0 3px #fff,0 0 3px #fff">●</span>' }) });
   const ghosts = L.layerGroup().addTo(map), trail = L.polyline([], { color: '#00e0e0', weight: 2, dashArray: '4 4' }).addTo(map);
   if (own.length) L.polyline(own.filter((r) => r[0] >= W0 && r[0] <= W1).map((r) => [r[1], r[2]]), { color: '#00a3a3', weight: 1, opacity: 0.5 }).addTo(map);
-  function drawOtherStatic() { othPoly.setLatLngs([]); othPoly.unbindTooltip(); if (osel.value) othPoly.bindTooltip(() => esc(names[osel.value] || osel.value) + ($('fixed').checked ? esc(tr('map.fixedMedian')) : '')); }
+  function drawOtherStatic() {
+    othPoly.setLatLngs([]); othPoly.unbindTooltip(); othTracks.clearLayers();
+    if (!osel.value) return;
+    othPoly.bindTooltip(() => esc(names[osel.value] || osel.value) + ($('fixed').checked ? esc(tr('map.fixedMedian')) : ''));
+    for (const [source, key, dashArray] of [['vdr', 'aisVdr', null], ['gatehouse', 'aisGatehouse', '6 6']]) {
+      const arr = aisSources[source][osel.value], inUse = arr === otherTrack;
+      if (!arr) continue;
+      L.polyline(arr.filter((r) => r[0] >= W0 && r[0] <= W1).map((r) => [r[1], r[2]]), { color: '#e07b00', weight: inUse ? 3 : 2, opacity: inUse ? 0.95 : 0.6, dashArray })
+        .bindTooltip(() => esc(tr(key))).addTo(othTracks);
+    }
+  }
   function hAt(t) {
     if (!H.length || t < H[0][0] || t > H[H.length - 1][0]) return null;
     let lo = 0, hi = H.length - 1;
@@ -610,6 +635,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   $('datast').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (b) au.currentTime = Math.max(0, +b.dataset.t - 1); });
   sel.addEventListener('change', renderDataStatus);
   osel.onchange = () => { otherChanged(); saveExtra(); recalc(); };
+  $('aisSource').onchange = () => { otherChanged(); saveExtra(); recalc(); };
   $('fixed').onchange = () => { saveExtra(); recalc(); };
   $('recalc').onclick = () => { saveExtra(); recalc(); };
   for (const p of ['o', 't']) for (const k of ['A', 'B', 'C', 'D']) $(p + k).onchange = () => saveExtra();
@@ -625,7 +651,9 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
       timing: 'G.726 uses filename UTC; AAC uses container header UTC. Independent clock verification required. Missing intervals are zero-filled, not evidence of silence. Later records overwrite overlapping samples.',
       time_correction: { offset_s: OFS, basis: OFS_BASIS, note: 'corrected display time = source timestamp + offset_s; audio samples unchanged' },
       gaps_s: c.qa.gaps, overlaps_s: c.qa.overlaps, rejected_files: c.qa.bad, omitted_channels: S.skippedChannels,
-      sources: c.sources, navigation_sources: S.logSources, external_ais_sources: S.csvSources, ais_filter: 'invalid/unavailable values removed; GateHouse obvious outliers filtered; model distances are estimates, not survey measurements' };
+      sources: c.sources, navigation_sources: S.logSources, external_ais_sources: S.csvSources,
+      ais_source: { mode: $('aisSource').value, other_mmsi: osel.value || null, used: usedSource(), note: 'VDR-received AIS and GateHouse tracks are kept separate and never merged; vdr-first uses GateHouse only for vessels the VDR did not receive' },
+      ais_filter: 'invalid/unavailable values removed; GateHouse obvious outliers filtered; model distances are estimates, not survey measurements' };
   }
   let exportBusy = false;
   async function audioEntries(ch, startUTC, endUTC, enhanced = false) {

@@ -193,3 +193,23 @@ const parseDT=()=>null,fmtDT=String,setWindowFromEvent=()=>{};
     # Zone-less timestamps follow the zone field, also after the file was imported.
     assert data["atZero"] == 1767254400000 and data["atEight"] == 1767254400000 - 8 * 3600000
     assert "csvSummary" in data["summary"]
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_ais_source_choice_keeps_vdr_and_gatehouse_tracks_apart():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    start = source.index("function aisTrack(")
+    end = source.index(chr(10) + "}" + chr(10), start) + 3
+    code = source[start:end] + """
+const v=[[0,1,1]],g=[[5,2,2]],sources={vdr:{'1':v,'2':v},gatehouse:{'1':g,'3':g}};
+const pick=(m,mode)=>{const t=aisTrack(sources,m,mode);return t===v?'vdr':t===g?'gatehouse':t;};
+console.log(JSON.stringify(Object.fromEntries(['1','2','3','4'].map(m=>[m,['vdr-first','vdr','gatehouse'].map(mode=>pick(m,mode))]))));
+"""
+    proc = subprocess.run([NODE, "-e", code], check=True, capture_output=True, text=True, encoding="utf-8")
+    # VDR shares the recording's clock, so it wins by default; the two are never merged.
+    assert json.loads(proc.stdout) == {
+        "1": ["vdr", "vdr", "gatehouse"], "2": ["vdr", "vdr", None],
+        "3": ["gatehouse", None, "gatehouse"], "4": [None, None, None]}
+    main = source[source.index("async function startMain("):]
+    assert ".concat(inWin)" not in main and "aisTrack(aisSources" in main
+    assert "ais_source: $('aisSource').value" in main
