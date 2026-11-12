@@ -157,3 +157,39 @@ console.log(JSON.stringify({initial,calls,changed:Object.keys(VHF).filter(k=>VHF
     assert all(c["known"] and c["threshold"] == 64 and c["gap"] == 1.5
                and c["minDur"] == 0.5 for c in result["calls"])
     assert result["changed"] == ["A2"]
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_ais_files_are_read_once_and_parsed_again_when_the_zone_changes():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    start = source.index("$('tz').addEventListener('change'")
+    end = source.index("// ---------- 4.", start)
+    code = """
+const crypto=require('node:crypto');
+const AISCSV=require(""" + json.dumps((ROOT / "scripts/vdr_review/src/gatehouse.js").as_posix()) + """);
+const sha256=async data=>crypto.createHash('sha256').update(Buffer.from(data)).digest('hex');
+const nodes={},$=id=>nodes[id]||(nodes[id]={value:'',disabled:false,hidden:false,addEventListener(type,fn){this['on'+type]=fn;}});
+const S={csv:null,csvNames:[],csvSources:[],canLoad:true};
+let TZ=0;const html=(id,render)=>{$(id).html=render();},text=()=>{},esc=String,tr=k=>k,errHTML=String,errorText=e=>e.stack;
+const parseDT=()=>null,fmtDT=String,setWindowFromEvent=()=>{};
+""" + source[start:end] + """
+(async()=>{
+ const csv='MMSI,Timestamp,Latitude,Longitude\\n999000001,2026-01-01 08:00:00,22.5,120.25\\n';
+ const bytes=Buffer.from(csv);let reads=0;
+ const file={name:'track.csv',size:bytes.length,
+  arrayBuffer:async()=>{reads++;return bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength);},
+  text:async()=>{reads++;return csv;},stream:()=>{throw new Error('unexpected stream read');}};
+ $('tz').value='0';await $('fcsv').onchange({target:{files:[file]}});
+ const atZero=S.csv?.tracks['999000001'][0][0];
+ $('tz').value='8';$('tz').onchange();
+ const atEight=S.csv?.tracks['999000001'][0][0];
+ console.log(JSON.stringify({reads,atZero,atEight,summary:$('csvsum').html,hash:S.csvSources[0]?.sha256,expected:await sha256(bytes)}));
+})();
+"""
+    proc = subprocess.run([NODE, "-e", code], check=True, capture_output=True, text=True, encoding="utf-8")
+    data = json.loads(proc.stdout)
+    # The recorded hash must describe the very bytes that were parsed.
+    assert data["reads"] == 1 and data["hash"] == data["expected"]
+    # Zone-less timestamps follow the zone field, also after the file was imported.
+    assert data["atZero"] == 1767254400000 and data["atEight"] == 1767254400000 - 8 * 3600000
+    assert "csvSummary" in data["summary"]

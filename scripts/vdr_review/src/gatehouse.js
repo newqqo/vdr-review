@@ -159,20 +159,30 @@ function coreError(key, params = {}) {
     return { tracks, names, rows, skipped, outliers };
   }
 
-  // 剔除明顯錯誤船位：離航跡中位數超過50公里，或與前一個保留點相比隱含速度超過60節
+  // 剔除明顯錯誤船位：離航跡中位數超過50公里，或無法串成合理航跡（10分鐘內相鄰保留點隱含速度超過60節）。
+  // 保留能串成合理航跡的最多船位，而不是只和前一個保留點比，否則一個保留下來的錯誤點會連帶刪掉其後的正確航跡。
   function dropOutliers(arr) {
     if (arr.length < 3) return arr;
     const med = (i) => { const s = arr.map((r) => r[i]).sort((a, b) => a - b); return s[s.length >> 1]; };
     const mlat = med(1), mlon = med(2), kx = 111320 * Math.cos(mlat * Math.PI / 180);
     const dist = (a, b) => Math.hypot((a[1] - b[1]) * 111132, (a[2] - b[2]) * kx);
     const near = arr.filter((r) => dist(r, [0, mlat, mlon]) < 50000);
-    const out = [];
-    for (const r of near) {
-      const p = out[out.length - 1];
-      if (p && r[0] - p[0] < 600000 && dist(r, p) / Math.max(1, (r[0] - p[0]) / 1000) > 31) continue;
-      out.push(r);
+    const WINDOW = 600000, CHECKED = 200;
+    const fits = (p, r) => dist(r, p) / Math.max(1, (r[0] - p[0]) / 1000) <= 31;
+    // count[j]：以 j 結尾的最長合理航跡點數；早於 10 分鐘的點一律可接，只需記住其中最好的一個。
+    const count = [], from = [];
+    let older = -1, lo = 0, end = -1;
+    for (let j = 0; j < near.length; j++) {
+      for (; lo < j && near[j][0] - near[lo][0] >= WINDOW; lo++) if (older < 0 || count[lo] >= count[older]) older = lo;
+      count[j] = older < 0 ? 1 : count[older] + 1; from[j] = older;
+      for (let i = Math.max(lo, j - CHECKED); i < j; i++) {
+        if (count[i] + 1 >= count[j] && fits(near[i], near[j])) { count[j] = count[i] + 1; from[j] = i; }
+      }
+      if (end < 0 || count[j] >= count[end]) end = j;
     }
-    return out;
+    const out = [];
+    for (let j = end; j >= 0; j = from[j]) out.push(near[j]);
+    return out.reverse();
   }
 
   const api = { parseCsvText, parseTime, unzipCsvs, merge, splitCsv };

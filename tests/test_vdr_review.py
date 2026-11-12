@@ -132,3 +132,19 @@ const r=G.merge([G.parseCsvText(rows)]);const t=r.tracks['999000001'];
 console.log(JSON.stringify({{n:t.length,first:t[0][0],hdg:t[1][5],skipped:r.skipped,outliers:r.outliers,
  iso:G.parseTime('2026-01-01T16:07:02+08:00',8)}}));""")
     assert result == {"n": 3, "first": 1767254822000, "hdg": None, "skipped": 1, "outliers": 1, "iso": 1767254822000}
+
+
+@needs_node
+def test_outlier_filter_keeps_the_track_after_a_bad_first_fix_or_a_bad_pair():
+    result = run_node(f"""
+const G=require('{SRC}/gatehouse.js');
+const t0=Date.UTC(2026,0,1,8,0,0),good=i=>[t0+i*10000,22.5+i*0.0001,120.25,5,0,null];
+const track=bad=>{{const a=Array.from({{length:12}},(_,i)=>good(i));for(const i of bad)a[i]=[a[i][0],22.68,120.25,5,0,null];return a;}};
+const run=bad=>{{const r=G.merge([{{tracks:{{'999000001':track(bad)}},names:{{}},rows:12,skipped:0}}]);
+ return {{kept:r.tracks['999000001'].map(p=>Math.round((p[0]-t0)/10000)),outliers:r.outliers}};}};
+console.log(JSON.stringify({{first:run([0]),pair:run([5,6]),spike:run([7]),last:run([11])}}));""")
+    # A fix about 20 km off passes the 50 km median test; it must not take the real track with it.
+    assert result["first"] == {"kept": list(range(1, 12)), "outliers": 1}
+    assert result["pair"] == {"kept": [i for i in range(12) if i not in (5, 6)], "outliers": 2}
+    assert result["spike"] == {"kept": [i for i in range(12) if i != 7], "outliers": 1}
+    assert result["last"] == {"kept": list(range(11)), "outliers": 1}

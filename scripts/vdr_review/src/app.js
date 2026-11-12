@@ -108,29 +108,36 @@ for (const id of ['wstart', 'wend']) $(id).addEventListener('input', () => { $('
 $('tz').addEventListener('change', () => {
   const z = +$('tz').value; if (!Number.isFinite(z) || z < -12 || z > 14) return;
   const a = parseDT($('wstart').value), b = parseDT($('wend').value);
-  TZ = Math.round(z * 3600);
+  TZ = Math.round(z * 3600); parseAis(z);
   if (!$('evt').value.trim()) { if (a != null) $('wstart').value = fmtDT(a); if (b != null) $('wend').value = fmtDT(b); if (S.cover) $('evtdate').value = fmtDT(S.cover[0]).slice(0, 10) === fmtDT(S.cover[1] - 1).slice(0, 10) ? fmtDT(S.cover[0]).slice(0, 10) : ''; }
   setWindowFromEvent();
 });
 
 // ---------- 3. AIS CSV ----------
+// Times without a zone use the zone field, so keep the text and parse it again when the zone changes.
+function parseAis(zone) {
+  if (!S.csvTexts || (S.csv && S.csvZone === zone)) return;
+  const csv = S.csv = AISCSV.merge(S.csvTexts.map(c => AISCSV.parseCsvText(c.text, zone))); S.csvZone = zone;
+  const n = Object.keys(csv.tracks).length, files = S.csvNames.length;
+  html('csvsum', () => esc((n ? '✓ ' : tr('csvNoPosition')) + tr('csvSummary', { files, rows: csv.rows, ships: n }) + (csv.skipped ? tr('csvSkipped', { count: csv.skipped }) : '') + (csv.outliers ? tr('csvOutliers', { count: csv.outliers }) : '')));
+}
 $('fcsv').onchange = async (e) => {
   const selection = S.csvSelection = (S.csvSelection || 0) + 1;
   S.csvReading = true; $('loadbtn').disabled = true;
   const box = $('csvsum'); box.hidden = false; text('csvsum', 'reading');
-  const res = [], names = [], csvSources = [];
+  const texts = [], csvSources = [];
   try {
     for (const f of e.target.files) {
-      csvSources.push({ file: f.name, bytes: f.size, sha256: await sha256(await f.arrayBuffer()) });
-      if (/\.zip$/i.test(f.name)) { for (const c of await AISCSV.unzipCsvs(new Uint8Array(await f.arrayBuffer()))) { res.push(AISCSV.parseCsvText(c.text, +$('tz').value)); names.push(f.name + '／' + c.name); } }
-      else { res.push(AISCSV.parseCsvText(await f.text(), +$('tz').value)); names.push(f.name); }
+      // One read per file: the recorded hash describes exactly the bytes that are parsed.
+      const buf = await f.arrayBuffer();
+      csvSources.push({ file: f.name, bytes: buf.byteLength, sha256: await sha256(buf) });
+      if (/\.zip$/i.test(f.name)) { for (const c of await AISCSV.unzipCsvs(new Uint8Array(buf))) texts.push({ name: f.name + '／' + c.name, text: c.text }); }
+      else texts.push({ name: f.name, text: new TextDecoder().decode(buf) });
     }
     if (selection !== S.csvSelection) return;
-    S.csv = AISCSV.merge(res); S.csvNames = names; S.csvSources = csvSources;
-    const n = Object.keys(S.csv.tracks).length;
-    const csv = S.csv;
-    html('csvsum', () => esc((n ? '✓ ' : tr('csvNoPosition')) + tr('csvSummary', { files: names.length, rows: csv.rows, ships: n }) + (csv.skipped ? tr('csvSkipped', { count: csv.skipped }) : '') + (csv.outliers ? tr('csvOutliers', { count: csv.outliers }) : '')));
-  } catch (err) { if (selection !== S.csvSelection) return; S.csv = null; S.csvSources = []; html('csvsum', () => errHTML(tr('csvUnreadable')) + '<details><summary class="note">' + esc(tr('details')) + '</summary>' + esc(errorText(err)) + '</details>'); }
+    S.csv = null; S.csvTexts = texts; S.csvNames = texts.map(c => c.name); S.csvSources = csvSources;
+    parseAis(+$('tz').value);
+  } catch (err) { if (selection !== S.csvSelection) return; S.csv = null; S.csvTexts = null; S.csvSources = []; html('csvsum', () => errHTML(tr('csvUnreadable')) + '<details><summary class="note">' + esc(tr('details')) + '</summary>' + esc(errorText(err)) + '</details>'); }
   finally { if (selection === S.csvSelection) { S.csvReading = false; $('loadbtn').disabled = !S.canLoad; } }
 };
 
@@ -167,6 +174,7 @@ $('loadbtn').onclick = async () => {
   const msg = $('loadmsg'), bar = $('loadbar');
   TZ = Math.round(+$('tz').value * 3600);
   if (!Number.isFinite(TZ) || TZ < -43200 || TZ > 50400) { text('loadmsg', 'invalidZone'); return; }
+  parseAis(+$('tz').value);
   if (!S.cls || !S.cover) { text('loadmsg', 'selectSource'); return; }
   if ($('evt').value.trim()) { setWindowFromEvent(); if (S.eventError) { const error = S.eventError; html('loadmsg', () => errHTML(errorText(error))); return; } }
   const W0 = parseDT($('wstart').value), W1 = parseDT($('wend').value);
