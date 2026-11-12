@@ -11,6 +11,8 @@ const rows={
  'ui.timeWindow':['選擇時段','Choose time range','時間範囲を選択','选择时段'],
  'ui.date':['日期','Date','日付','日期'],
  'ui.time':['時間','Time','時刻','时间'],
+ 'ui.eventTimeOptional':['事故時間（選填）','Incident time (optional)','事故時刻（任意）','事故时间（选填）'],
+ 'ui.eventTimeExample':['例：18:43','e.g. 18:43','例：18:43','例：18:43'],
  'ui.beforeAfter':['前後各','Before / after','前後それぞれ','前后各'],
  'ui.minutes':['分鐘','min','分','分钟'],
  'ui.seconds':['秒','s','秒','秒'],

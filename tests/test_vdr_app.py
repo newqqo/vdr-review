@@ -213,3 +213,29 @@ console.log(JSON.stringify(Object.fromEntries(['1','2','3','4'].map(m=>[m,['vdr-
     main = source[source.index("async function startMain("):]
     assert ".concat(inWin)" not in main and "aisTrack(aisSources" in main
     assert "ais_source: $('aisSource').value" in main
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_load_window_summary_names_the_full_recording_and_gates_the_event_span():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    start = source.index("function windowLength(")
+    end = source.index(chr(10) + "}" + chr(10), source.index("function setWindowFromEvent(")) + 3
+    code = """
+const nodes={},$=id=>nodes[id]||(nodes[id]={value:'',disabled:false});
+const t0=Date.UTC(2026,0,1,8,0,0),S={cover:[t0,t0+90*60000]};let TZ=8*3600;
+const fmtDT=t=>new Date(t+TZ*1000).toISOString().slice(0,19).replace('T',' ');
+const parseDT=s=>{const t=Date.parse(s.replace(' ','T')+'Z');return Number.isFinite(t)?t-TZ*1000:null;};
+const tr=(k,p)=>k+'('+Object.values(p||{}).join(',')+')',esc=String,errHTML=String,errorText=e=>e.message;
+let shown='';const text=(id,k,p)=>{shown=tr(k,p);},html=(id,render)=>{shown=render();};
+const VDRMedia={eventWindow:()=>[t0+20*60000,t0+80*60000]};
+""" + source[start:end] + """
+const run=(evt,wend)=>{$('evt').value=evt;$('wstart').value=fmtDT(S.cover[0]);$('wend').value=wend??fmtDT(S.cover[1]);
+ setWindowFromEvent();return {shown,spanDisabled:$('span').disabled};};
+console.log(JSON.stringify({whole:run(''),custom:run('',fmtDT(t0+45*60000)),event:run('16:30')}));
+"""
+    proc = subprocess.run([NODE, "-e", code], check=True, capture_output=True, text=True, encoding="utf-8")
+    data = json.loads(proc.stdout)
+    # Without an incident time the whole recording loads, the summary says so, and the span is off.
+    assert data["whole"] == {"shown": "loadWindowWhole(2026-01-01 16:00:00,2026-01-01 17:30:00,+8,hoursMinutes(1,30))", "spanDisabled": True}
+    assert data["custom"] == {"shown": "loadWindowCustom(2026-01-01 16:00:00,2026-01-01 16:45:00,+8,minutesOnly(45))", "spanDisabled": True}
+    assert data["event"]["shown"].startswith("loadWindowMinutes(") and data["event"]["spanDisabled"] is False

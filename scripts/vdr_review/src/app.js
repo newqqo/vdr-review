@@ -92,10 +92,24 @@ $('fdir').onchange = async (e) => {
 };
 
 // ---------- 2. 事故時間 → 載入時段 ----------
+// 時段長度以整數分鐘顯示，滿一小時寫成「X 小時 Y 分」。
+function windowLength(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60000)), hours = Math.floor(minutes / 60);
+  return hours ? tr('hoursMinutes', { hours, minutes: minutes % 60 }) : tr('minutesOnly', { minutes });
+}
 function setWindowFromEvent() {
   S.eventError = null;
+  // 前後分鐘只在填了事故時間時才用到；沒填時停用，避免誤以為只載入一段。
+  $('span').disabled = !$('evt').value.trim();
   if (!S.cover) return;
-  if (!$('evt').value.trim()) { text('winsum', 'loadWindow', { start: $('wstart').value, end: $('wend').value, zone: (TZ >= 0 ? '+' : '') + TZ / 3600 }); return; }
+  const zone = (TZ >= 0 ? '+' : '') + TZ / 3600;
+  if (!$('evt').value.trim()) {
+    const a = parseDT($('wstart').value), b = parseDT($('wend').value);
+    if (a == null || b == null || b <= a) { text('winsum', 'loadWindow', { start: $('wstart').value, end: $('wend').value, zone }); return; }
+    const whole = Math.abs(a - S.cover[0]) < 1000 && Math.abs(b - S.cover[1]) < 1000;
+    html('winsum', () => esc(tr(whole ? 'loadWindowWhole' : 'loadWindowCustom', { start: fmtDT(a), end: fmtDT(b), zone, duration: windowLength(b - a) })));
+    return;
+  }
   try {
     const [a, b] = VDRMedia.eventWindow(S.cover, $('evtdate').value, $('evt').value, +$('span').value, TZ);
     $('wstart').value = fmtDT(a); $('wend').value = fmtDT(b);
@@ -208,7 +222,7 @@ $('loadbtn').onclick = async () => {
     bar.style.width = '100%'; text('loadmsg', 'complete');
   } catch (err) {
     S.identity = null;
-    html('loadmsg', () => errHTML(tr('loadFailed')) + '<details><summary class="note">' + esc(tr('loadDetails')) + '</summary>' + esc(errorText(err)) + '</details>'); for (const input of locked) input.disabled = false; console.error(err);
+    html('loadmsg', () => errHTML(tr('loadFailed')) + '<details><summary class="note">' + esc(tr('loadDetails')) + '</summary>' + esc(errorText(err)) + '</details>'); for (const input of locked) input.disabled = false; $('span').disabled = !$('evt').value.trim(); console.error(err);
   }
 };
 

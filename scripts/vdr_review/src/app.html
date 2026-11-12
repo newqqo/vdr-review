@@ -115,10 +115,10 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
   <label class="bigbtn" title="選擇含 Audio／Log 或 Internal_Storage 的單一 VDR 資料夾；只讀取本機原檔" data-i18n-title="ui.folderHint"><span data-i18n="ui.chooseFolder">📁 選擇 VDR 資料夾</span><input type="file" id="fdir" webkitdirectory multiple hidden></label>
   <div id="dirsum" class="sum" hidden></div></div></div>
  <div class="step"><div class="num">2</div><div><b data-i18n="ui.timeWindow">選擇時段</b>
-  <div class="set"><label><span data-i18n="ui.date">日期</span> <input id="evtdate" type="date"></label><label><span data-i18n="ui.time">時間</span> <input id="evt" size="6" placeholder="18:43"></label>
-   <label><span data-i18n="ui.beforeAfter">前後各</span> <select id="span"><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="60">60</option><option value="120">120</option></select> <span data-i18n="ui.minutes">分鐘</span></label>
+  <div class="set"><label><span data-i18n="ui.date">日期</span> <input id="evtdate" type="date"></label><label><span data-i18n="ui.eventTimeOptional">事故時間（選填）</span> <input id="evt" size="8" placeholder="例：18:43" data-i18n-placeholder="ui.eventTimeExample"></label>
+   <label><span data-i18n="ui.beforeAfter">前後各</span> <select id="span" disabled><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="60">60</option><option value="120">120</option></select> <span data-i18n="ui.minutes">分鐘</span></label>
    <label><span data-i18n="ui.timezone">顯示時區 UTC</span> <input id="tz" type="number" value="8" min="-12" max="14" step="0.25" style="width:58px"></label>
-   <button id="allRecording" type="button" data-i18n="ui.wholeRecording">整份錄音</button><span id="winsum" class="note" data-i18n="ui.defaultWindow">未填時間：開啟整份錄音</span></div>
+   <button id="allRecording" type="button" data-i18n="ui.wholeRecording">整份錄音</button><span id="winsum" data-i18n="ui.defaultWindow">未填時間：開啟整份錄音</span></div>
   <details><summary class="note" data-i18n="ui.customWindow">指定起訖／案件名稱</summary>
    <div class="set"><label><span data-i18n="ui.begin">開始</span> <input id="wstart" size="19" placeholder="2026-01-01 08:20:00"></label><label><span data-i18n="ui.end">結束</span> <input id="wend" size="19" placeholder="2026-01-01 08:58:00"></label>
    <label><span data-i18n="ui.filenamePrefix">檔名開頭</span> <input id="cname" size="14" placeholder="預設為船名" data-i18n-placeholder="ui.vesselNameDefault"></label></div>
