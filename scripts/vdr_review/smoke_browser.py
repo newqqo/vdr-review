@@ -6,6 +6,7 @@ developer's installed Playwright and ffmpeg; never installs either or opens case
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import json
 import shutil
@@ -63,6 +64,7 @@ def run(html: Path, executable: str, out: Path) -> dict:
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.on("dialog", lambda dialog: dialog.accept())
         page.goto(html.as_uri())
+        assert not network, network  # opening the tool makes no requests
         result["native_file_picker_available"] = page.evaluate("typeof showSaveFilePicker === 'function'")
         page.screenshot(path=str(out / "01_start.png"), full_page=True)
         # Directory-input selection and normal UI events, not internal app calls.
@@ -81,12 +83,17 @@ def run(html: Path, executable: str, out: Path) -> dict:
         print('G726 local-folder load passed', flush=True)
         assert page.locator("#ch option").count() == 2
         assert page.locator("#fdir").is_disabled()
-        assert not page.locator(".left").is_visible()
+        # After loading, the start pane gives way; the vessel-track pane stays visible by design.
+        assert page.locator("#loadpane").is_hidden()
+        assert page.locator("#navigationPane").is_visible()
         assert "2026-10-23" in page.locator("#sessioninfo").inner_text()
         page.wait_for_function("document.getElementById('au').duration > 59")
-        page.locator("#edadd").click()
-        page.locator("#edlist .tx").first.fill("SYNTHETIC 〔不明〕")
-        page.locator("button[data-st='1']").click()
+        # Add a sentence the way people do: type it in the composer and press Enter.
+        page.locator("#edcompose").fill("SYNTHETIC 〔不明〕")
+        page.locator("#edcompose").press("Enter")
+        # Select the sentence so its tools appear, then mark it reviewed.
+        page.locator("#edlist .tx").first.click()
+        page.locator("#edtool button[data-st='1']").click()
         assert page.locator("#edlist .est").first.inner_text() == "已核"
         page.locator("#edlist .tx").first.fill("SYNTHETIC changed")
         assert page.locator("#edlist .est").first.inner_text() == "未核"
@@ -106,6 +113,8 @@ def run(html: Path, executable: str, out: Path) -> dict:
         main = page.evaluate("JSON.parse(smokeWrites[1])")
         result["same_handle_saved_twice"] = main["state"]["A1"][0]["text"] == "SYNTHETIC final"
         assert result["same_handle_saved_twice"]
+        # The hand-off export sits in the collapsed "export / other" section, as people find it.
+        page.locator("#deliveryOptions > summary").click()
         with page.expect_download() as download:
             page.locator("#exBundle").click()
         package = out / "synthetic-handoff.zip"
@@ -130,18 +139,22 @@ def run(html: Path, executable: str, out: Path) -> dict:
                 assert hashlib.sha256(clip).hexdigest() == receipt["output_wav_sha256"]
                 processing = receipt["processing"]
                 if enhanced:
-                    assert processing["kind"] == "enhanced_listening_only" and "gain" in processing
+                    # Gain is chosen per segment and recorded for each one.
+                    assert processing["kind"] == "enhanced_listening_only" and processing["segments"]
+                    assert all(segment["gain"] > 0 for segment in processing["segments"])
                 else:
                     assert processing["kind"] == "decoded_original"
-                    a, b = processing["sample_start"], processing["sample_end"]
-                    assert clip[44:] == wav[44 + a * 2:44 + b * 2]
+                    # The clip holds the same decoded samples as the full-channel WAV over its window.
+                    utc = lambda value: datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+                    a = round((utc(receipt["window_utc"][0]) - utc(manifest["window_utc"][0])) * receipt["sample_rate"])
+                    assert len(clip) > 44 and clip[44:] == wav[44 + a * 2:44 + a * 2 + len(clip) - 44]
         result["original_and_enhanced_receipts"] = True
         # Changing extras must mark the same project dirty.
-        page.locator("#showAux").check()
+        page.locator("#navigationDetails > summary").click()  # event notes live in this section
         page.locator("#events").fill("17:00:30 SYNTHETIC event")
         page.wait_for_timeout(6200)  # transient saved message expires
-        assert "尚有變更" in page.locator("#edsave").inner_text()
-        page.locator("#showAux").uncheck()
+        assert "尚未儲存" in page.locator("#edsave").inner_text()
+        page.locator("#navigationDetails > summary").click()
         page.screenshot(path=str(out / "02_review.png"), full_page=True)
         # Wrong-source import is refused before modifying the current text.
         main["recording_id"] = "f" * 64
@@ -164,10 +177,12 @@ def run(html: Path, executable: str, out: Path) -> dict:
         page.locator("#mainpane").wait_for(state="visible", timeout=60000)
         print('AAC local-folder load passed', flush=True)
         page.wait_for_function("document.getElementById('au').duration > 1")
-        assert "AAC" in page.locator("#datast").inner_text()
+        # The folder summary lists the format. The data status may instead report the last frame the
+        # browser decoder leaves out as a short gap, which is honest, so it is not checked for the codec.
+        assert "AAC" in page.locator("#dirsum").text_content()
         assert page.locator("#ch option").count() == 2
-        page.locator("#edadd").click()
-        page.locator("#edlist .tx").first.fill("SYNTHETIC AAC")
+        page.locator("#edcompose").fill("SYNTHETIC AAC")
+        page.locator("#edcompose").press("Enter")
         page.evaluate("window.showSaveFilePicker=undefined")
         with page.expect_download() as download:
             page.locator("#saveP").click()
@@ -180,7 +195,8 @@ def run(html: Path, executable: str, out: Path) -> dict:
         page.screenshot(path=str(out / "03_aac.png"), full_page=True)
         result["network_requests"] = network
         result["browser_errors"] = errors
-        assert not network, network
+        # After loading, the only requests allowed are basemap tiles (the "no basemap" layer avoids them).
+        assert all(url.startswith("https://wmts.nlsc.gov.tw/wmts/") for url in network), network
         assert not errors, errors
         browser.close()
     return result
