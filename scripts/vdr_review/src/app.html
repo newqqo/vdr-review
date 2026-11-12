@@ -26,7 +26,8 @@ audio{width:100%}button,select,input{font:inherit;padding:3px 9px}
 .secondary{margin:8px 0;padding:8px 10px;border:1px solid var(--grid);border-radius:6px;background:#fff}.secondary>summary{font-size:13px;cursor:pointer;color:var(--mut)}.secondary[open]>summary{margin-bottom:7px}
 #transcriptionFlow{margin-top:12px}#transcriptionFlow>summary{cursor:pointer;font-weight:600}#transcriptionFlow[open]>summary{margin-bottom:8px}
 button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #277a7b;outline-offset:3px}
-@media (max-width:1000px){.wrap{grid-template-columns:1fr}#navigationPane #map{height:32vh;min-height:220px}#edpanel{position:relative!important;top:0!important}#playbackBar .jump-time{margin-left:0}}
+#edpanel{max-height:calc(100vh - 108px)}#edpanel>*{flex:none}#edpanel>#edlist{flex:1 1 auto;height:auto;min-height:140px}#seekmap{display:block;width:100%;height:20px;cursor:pointer}#edlist.compact .er{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:8px;align-items:start;padding:2px 6px;margin:3px 0}#edlist.compact .ehd{flex-wrap:nowrap;margin:0;padding-top:3px}#edlist.compact .elt{display:none}#edlist.compact .er .tx{font-size:15px;line-height:1.45;padding:1px 4px}#edlist.compact .eorig{grid-column:2}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr}#navigationPane #map{height:32vh;min-height:220px}#edpanel{position:relative!important;top:0!important;max-height:none}#edpanel>#edlist{height:360px;flex:none}#playbackBar .jump-time{margin-left:0}}
 @media (max-width:600px){main{padding:7px}.card{padding:10px}.clock{font-size:18px}#playbackBar .jump-time{display:none}#playbackBar .clock{font-size:18px}#sessioninfo{max-width:85vw}}
 .card{background:#fff;border:1px solid var(--grid);border-radius:8px;padding:12px 16px;margin:10px 0}
 .card h2{font-size:16px;margin:0 0 6px}.step{display:grid;grid-template-columns:28px 1fr;gap:8px;margin:10px 0}
@@ -72,7 +73,7 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 details.files summary{cursor:pointer;color:var(--mut);font-size:13px}details.files .erow button{font-size:12.5px}
 #edlist{overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;flex:none;height:clamp(320px,calc(100vh - 430px),700px);min-height:320px;box-sizing:border-box;padding:6px 10px 20px}
 @media(max-width:1000px){#edlist{height:clamp(360px,55vh,640px)}}
-@media(max-height:600px){#edpanel{position:relative;top:0}#edlist{height:360px}}
+@media(max-height:600px){#edpanel{position:relative;top:0;max-height:none}#edlist{height:360px}#edpanel>#edlist{flex:none;height:360px}}
 .er{border:1px solid #e3e9e7;border-left:5px solid var(--c,#b8c2c0);border-radius:6px;padding:4px 8px 6px;margin:6px 0;background:#fff;transition:background .15s}
 .er:hover{border-color:#cdd8d5}.er.cur{background:#f0f7f5}.er.act{outline:2px solid var(--acc);outline-offset:1px}.er.ovl{background-image:linear-gradient(90deg,#eef4ff,#fff 60%)}
 .er.is-playing{background:#d9f1ec;background-image:none;border-color:#0d7468;box-shadow:inset 0 0 0 1px #0d7468}.er.is-playing .tx{color:#103e37}
@@ -112,8 +113,8 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
 <section id="loadpane" class="card">
  <h2 data-i18n="ui.start">開始</h2>
  <div class="step"><div class="num">1</div><div><b data-i18n="ui.openRecording">開啟錄音</b><br>
-  <label class="bigbtn" title="選擇含 Audio／Log 或 Internal_Storage 的單一 VDR 資料夾；只讀取本機原檔" data-i18n-title="ui.folderHint"><span data-i18n="ui.chooseFolder">📁 選擇 VDR 資料夾</span><input type="file" id="fdir" webkitdirectory multiple hidden></label>
-  <div id="dirsum" class="sum" hidden></div></div></div>
+  <label class="bigbtn" title="選擇含 Audio／Log 或 Internal_Storage 的單一 VDR 資料夾；只讀取本機原檔" data-i18n-title="ui.folderHint"><span data-i18n="ui.chooseFolder">📁 選擇 VDR 資料夾</span><input type="file" id="fdir" webkitdirectory multiple hidden></label> <span class="note" data-i18n="ui.folderSpeedHint">光碟或隨身碟讀取很慢，請先把整個 VDR 資料夾複製到電腦硬碟再選。</span>
+  <div class="progress" id="dirprog" hidden><div id="dirbar"></div></div><div id="dirsum" class="sum" hidden></div></div></div>
  <div class="step"><div class="num">2</div><div><b data-i18n="ui.timeWindow">選擇時段</b>
   <div class="set"><label><span data-i18n="ui.date">日期</span> <input id="evtdate" type="date"></label><label><span data-i18n="ui.eventTimeOptional">事故時間（選填）</span> <input id="evt" size="8" placeholder="例：18:43" data-i18n-placeholder="ui.eventTimeExample"></label>
    <label><span data-i18n="ui.beforeAfter">前後各</span> <select id="span" disabled><option value="10">10</option><option value="20">20</option><option value="30" selected>30</option><option value="60">60</option><option value="120">120</option></select> <span data-i18n="ui.minutes">分鐘</span></label>
@@ -140,7 +141,7 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
  <span id="playelapsed" class="note">00:00 / 00:00</span><span id="playstatus" class="note" role="status"></span>
  <label class="jump-time"><input id="go" placeholder="日期時間" data-i18n-placeholder="ui.dateTime" size="18" aria-label="跳至日期時間" data-i18n-aria-label="ui.jumpDateTime"><button id="gobtn" data-i18n="ui.jump">跳轉</button></label>
 </div>
-<input id="seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="整段錄音播放位置" data-i18n-aria-label="ui.seek">
+<input id="seek" type="range" min="0" max="1" step="0.1" value="0" aria-label="整段錄音播放位置" data-i18n-aria-label="ui.seek"><canvas id="seekmap" title="點選跳到該時間。色塊＝本聲道已打的句子（綠＝已核、灰＝未核）；灰底＝缺段" data-i18n-title="ui.seekOverview"></canvas>
 </div>
 <div id="tcpanel" hidden><b data-i18n="ui.calibration">錄音時間校正</b> <span data-i18n="ui.clockEquation">錄音時間＝檔名推定時間 ＋</span> <input id="tcofs" type="number" step="0.1" style="width:72px"> <span data-i18n="ui.seconds">秒</span>
  <label><span data-i18n="ui.basis">依據</span> <input id="tcbasis" size="30" placeholder="例：VTS錄音 18:27:14 呼叫，兩邊對時" data-i18n-placeholder="ui.basisExample"></label><button id="tcok" data-i18n="ui.apply">套用</button><button id="tcclr" data-i18n="ui.clear">清除</button>
@@ -178,7 +179,7 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
 </div>
 <aside id="edpanel">
  <div class="edhead">
-  <div class="edtitle"><h2 data-i18n="review.title">聽寫記錄</h2><span id="edprog"></span><div class="ed-actions"><button id="saveP" class="pbtn" title="儲存到案件主檔" data-i18n="action.save" data-i18n-title="ui.saveHint">儲存案件</button><button id="loadP" class="pbtn" title="開啟同一份錄音的案件進度" data-i18n="action.load" data-i18n-title="ui.loadHint">開啟進度</button><input type="file" id="imJson" accept=".json" hidden></div><span class="note" id="edsave" role="status"></span></div>
+  <div class="edtitle"><h2 data-i18n="review.title">聽寫記錄</h2><span id="edprog"></span><label class="note edcompact" title="每句一行，一次看到更多句" data-i18n-title="ui.compactHint"><input type="checkbox" id="edcompact"> <span data-i18n="ui.compactList">精簡顯示</span></label><div class="ed-actions"><button id="saveP" class="pbtn" title="儲存到案件主檔" data-i18n="action.save" data-i18n-title="ui.saveHint">儲存案件</button><button id="loadP" class="pbtn" title="開啟同一份錄音的案件進度" data-i18n="action.load" data-i18n-title="ui.loadHint">開啟進度</button><input type="file" id="imJson" accept=".json" hidden></div><span class="note" id="edsave" role="status"></span></div>
   <div class="prog"><div id="edbar"></div></div>
   <details id="reviewOptions" class="secondary"><summary data-i18n="ui.reviewOptions">講者／篩選／進階工具</summary>
   <div class="erow">

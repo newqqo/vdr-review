@@ -57,9 +57,15 @@ $('fdir').onchange = async (e) => {
   S.cls = null; S.cover = null; S.identity = null; S.canLoad = false; $('loadbtn').disabled = true;
   const box = $('dirsum'); box.hidden = false;
   if (!files.length) { text('dirsum', 'noFiles'); return; }
-  text('dirsum', 'indexing');
-  try { const cls = await VDR.indexEntries(files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f, size: f.size }))); if (selection !== S.selection) return; S.cls = cls; }
-  catch (err) { if (selection === S.selection) html('dirsum', () => esc(errorText(err))); return; }
+  text('dirsum', 'indexingFiles', { count: files.length });
+  const dirbar = $('dirbar'), showProgress = (done, total) => {
+    if (selection !== S.selection || (done % 10 && done !== total)) return;
+    $('dirprog').hidden = false; dirbar.style.width = (done / total * 100).toFixed(1) + '%';
+    text('dirsum', 'indexingProgress', { done, total, percent: Math.floor(done / total * 100) });
+  };
+  try { const cls = await VDR.indexEntries(files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f, size: f.size })), showProgress); if (selection !== S.selection) return; S.cls = cls; }
+  catch (err) { if (selection === S.selection) { $('dirprog').hidden = true; html('dirsum', () => esc(errorText(err))); } return; }
+  $('dirprog').hidden = true;
   const ch = Object.keys(S.cls.audio).sort();
   if (!ch.length) { html('dirsum', () => errHTML(tr('audioNotFound'))); $('loadbtn').disabled = true; return; }
   const lines = [], probs = [];
@@ -90,6 +96,35 @@ $('fdir').onchange = async (e) => {
   setWindowFromEvent();
   S.canLoad = ok; $('loadbtn').disabled = !ok || S.csvReading;
 };
+
+// 精簡顯示：每句一行，一次看到更多句；只存在這台電腦的瀏覽器。
+const compactList = $('edcompact');
+try { compactList.checked = localStorage.getItem('vdrreview:compact') === '1'; } catch (e) { /* ignore */ }
+compactList.onchange = () => {
+  $('edlist').classList.toggle('compact', compactList.checked);
+  try { localStorage.setItem('vdrreview:compact', compactList.checked ? '1' : '0'); } catch (e) { /* ignore */ }
+};
+compactList.onchange();
+// 聽寫面板（含打字框）要整個留在視窗內：未捲動時面板較低，捲動後貼齊上方，所以依實際位置計算高度。
+let panelFitQueued = false;
+function fitPanel() {
+  const panel = $('edpanel');
+  if (getComputedStyle(panel).position !== 'sticky') { panel.style.maxHeight = ''; return; }
+  panel.style.maxHeight = Math.max(320, window.innerHeight - Math.max(panel.getBoundingClientRect().top, 100) - 8) + 'px';
+}
+function queuePanelFit() {
+  if (panelFitQueued) return;
+  panelFitQueued = true; requestAnimationFrame(() => { panelFitQueued = false; fitPanel(); });
+}
+window.addEventListener('scroll', queuePanelFit, { passive: true }); window.addEventListener('resize', queuePanelFit);
+// 時間軸總覽：刻度依寬度選最小但仍放得下標籤（約 70 像素）的間隔，並對齊當地時鐘。
+const SEEK_INSET = 8, CUE_COLORS = ['#7b8a87', '#2f9e44', '#f08c00', '#e03131'];
+function seekTicks(duration, width, localStart) {
+  const steps = [60, 120, 300, 600, 900, 1800, 3600, 7200, 10800];
+  const step = steps.find((s) => (width - 2 * SEEK_INSET) * s / duration >= 70) || steps[steps.length - 1], times = [];
+  for (let t = Math.ceil(localStart / step) * step - localStart; t <= duration; t += step) times.push(t);
+  return { step, times };
+}
 
 // ---------- 2. 事故時間 → 載入時段 ----------
 // 時段長度以整數分鐘顯示，滿一小時寫成「X 小時 Y 分」。
@@ -540,6 +575,29 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   function playerControls() { rawText('playbtn', (au.paused ? '▶ ' : '⏸ ') + VDRI18n.t(au.paused ? 'action.play' : 'action.pause')); $('seek').value = au.currentTime; $('playelapsed').textContent = elapsed(au.currentTime) + ' / ' + elapsed(DUR); }
   $('seek').max = DUR;
   $('seek').oninput = e => { au.currentTime = +e.target.value; playerControls(); };
+  // 時間軸下的總覽：當地時鐘刻度、本聲道已打的句子（依核聽狀態上色）與缺段；點選即跳轉，滑過顯示時間。
+  const seekAt = (e, node) => { const r = node.getBoundingClientRect(); return Math.max(0, Math.min(DUR, (e.clientX - r.left - SEEK_INSET) / Math.max(1, r.width - 2 * SEEK_INSET) * DUR)); };
+  function drawSeekmap() {
+    const node = $('seekmap'), w = node.clientWidth, h = node.clientHeight, dpr = window.devicePixelRatio || 1;
+    if (!w || !h) return;
+    node.width = Math.round(w * dpr); node.height = Math.round(h * dpr);
+    const g = node.getContext('2d'), X = (t) => SEEK_INSET + Math.max(0, Math.min(1, t / DUR)) * (w - 2 * SEEK_INSET);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    g.fillStyle = '#e9edec';
+    for (const [a, b] of CHS[sel.value]?.qa.gaps || []) g.fillRect(X(a), 0, Math.max(1, X(b) - X(a)), h);
+    g.strokeStyle = '#b8c4c1'; g.fillStyle = '#6b7c78'; g.font = '10px ui-monospace,Consolas,monospace'; g.textBaseline = 'bottom';
+    for (const t of seekTicks(DUR, w, T0 + OFS + TZ).times) {
+      const x = Math.round(X(t)) + 0.5;
+      const label = fmtClock(T0 + OFS + t).slice(0, 5);
+      g.beginPath(); g.moveTo(x, 7); g.lineTo(x, 11); g.stroke(); if (x + 2 + g.measureText(label).width <= w) g.fillText(label, x + 2, h);
+    }
+    for (const c of editor?.state()[sel.value] || []) { g.fillStyle = CUE_COLORS[c.st] || CUE_COLORS[0]; g.fillRect(X(c.start), 0, Math.max(3, X(c.end) - X(c.start)), 6); }
+  }
+  $('seekmap').onclick = (e) => { au.currentTime = seekAt(e, $('seekmap')); playerControls(); };
+  $('seek').addEventListener('mousemove', (e) => { $('seek').title = fmtClock(T0 + OFS + seekAt(e, $('seek'))).slice(0, 8); });
+  $('seekmap').addEventListener('mousemove', (e) => { $('seekmap').title = fmtClock(T0 + OFS + seekAt(e, $('seekmap'))).slice(0, 8) + ' · ' + VDRI18n.t('ui.seekOverview'); });
+  const seekResize = typeof ResizeObserver === 'function' ? new ResizeObserver(() => drawSeekmap()) : null;
+  seekResize?.observe($('seekmap'));
   $('playbtn').onclick = () => { if (au.paused) au.play().catch(e => { rawText('playstatus', errorText(e)); }); else au.pause(); };
   for (const ev of ['timeupdate', 'seeked', 'play', 'pause', 'ended', 'loadedmetadata']) au.addEventListener(ev, playerControls);
   $('exportStart').value = fmtDT(W0); $('exportEnd').value = fmtDT(W1);
@@ -609,7 +667,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
     const previousOffset = OFS;
     OFS = Number.isFinite(v) ? v : 0; OFS_BASIS = OFS ? basis : '';
     for (const id of ['exportStart', 'exportEnd']) { const time = parseDT($(id).value); if (time != null) $(id).value = fmtDT(time + (OFS - previousOffset) * 1000); }
-    offsetLabels();
+    offsetLabels(); drawSeekmap();
     $('tcofs').value = OFS || ''; $('tcbasis').value = OFS_BASIS;
     if (!quiet) { saveExtra(); tick(); renderDataStatus(); if (editor) editor.render(); }
   }
@@ -648,7 +706,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
       (q.bad.length ? ' <span title="' + esc(q.bad.map(b => b.file + ': ' + b.reason).join('\n')) + '">' + esc(tr('rejectedDetails', { count: q.bad.length })) + '</span>' : '') + omitted;
   }
   $('datast').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (b) au.currentTime = Math.max(0, +b.dataset.t - 1); });
-  sel.addEventListener('change', renderDataStatus);
+  sel.addEventListener('change', renderDataStatus); sel.addEventListener('change', () => drawSeekmap());
   osel.onchange = () => { otherChanged(); saveExtra(); recalc(); };
   $('aisSource').onchange = () => { otherChanged(); saveExtra(); recalc(); };
   $('fixed').onchange = () => { saveExtra(); recalc(); };
@@ -761,10 +819,10 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   activeEditor?.disposeI18n?.();
   activeEditor = editor = Editor.init({ au, sel, channels: Object.keys(CHS), T0, LT: TZ, ENV, ENVR: DSP.ENV_RATE, VHF, KEY, NAME,
     recordingId: S.identity, bundleEntries, exportClip, wav: (ch) => CHS[ch], extra, defaultExtra, exportWav, exports: () => exportHistory, ofs: () => OFS, legacy, dur: DUR, gaps: (ch) => (CHS[ch] ? CHS[ch].qa.gaps : []), pending: ch => CHS[ch]?.qa.pending_records || 0, envKnown: ch => CHS[ch]?.envKnown, coverage: coverageInfo,
-    requestWaveforms, channelLabels: ch => chLabel(ch, CHS[ch]?.rate) });
-  S.refresh = ch => { updateCoverage(); renderDataStatus(); refreshActivity(ch); if (editor?.refreshMedia) editor.refreshMedia(); };
+    requestWaveforms, channelLabels: ch => chLabel(ch, CHS[ch]?.rate), onChange: () => drawSeekmap() });
+  S.refresh = ch => { updateCoverage(); renderDataStatus(); refreshActivity(ch); if (editor?.refreshMedia) editor.refreshMedia(); drawSeekmap(); };
   await au.ready;
-  renderDataStatus(); tick();
+  renderDataStatus(); tick(); drawSeekmap(); queuePanelFit();
   const refreshMainLanguage = () => {
     sessionTitle(); candidateLabels(); mapLabels(true); tileSt(); offsetLabels();
     for (const option of [...sel.options, ...$('exportChannel').options]) option.textContent = chLabel(option.value, CHS[option.value]?.rate);

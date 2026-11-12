@@ -74,7 +74,8 @@ function coreError(key, params = {}) {
   }
 
   // 讀取 AAC 的容器時間，不以資料夾分鐘猜測。逐檔驗證，不把音訊 payload 留在索引中。
-  async function indexEntries(entries) {
+  // onProgress(done, total)：每讀完一個 AAC 記錄回報一次；從光碟讀數千個檔要好幾分鐘，畫面需要進度。
+  async function indexEntries(entries, onProgress) {
     const legacy = [], modern = [], roots = new Set();
     for (const e of entries) {
       const parts = e.path.split(/[\\/]/), name = parts[parts.length - 1];
@@ -98,13 +99,14 @@ function coreError(key, params = {}) {
         Object.assign(f, { codec: 'g726', rate, duration: 60 });
       }
     }
-    for (const { e, parts, am } of modern) {
+    for (const [k, { e, parts, am }] of modern.entries()) {
       if (!e.file?.arrayBuffer) throw coreError('vdr.aacRead', { path: e.path });
       const rec = readAudioRecord(new Uint8Array(await e.file.arrayBuffer()), am[1].toUpperCase());
       if (rec.codec !== 'aac') throw coreError('vdr.aacName', { path: e.path });
       (result.audio[rec.channel] ||= []).push({ start: rec.start, name: parts[parts.length - 1], folder: parts[parts.length - 2],
         path: e.path, file: e.file, size: e.size ?? e.file.size, codec: rec.codec, rate: rec.rate,
         duration: rec.duration, frames: rec.frames, recordedTimestamp: rec.recordedTimestamp });
+      onProgress?.(k + 1, modern.length);
     }
     return sortIndex(result);
   }

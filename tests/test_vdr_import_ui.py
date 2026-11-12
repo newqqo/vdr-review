@@ -405,3 +405,14 @@ def test_merging_normal_neighbor_cannot_absorb_pending_timing_and_drop_its_flag(
     ]
     assert result["cues"][1]["timing_review"]["original_start"] == 20
     assert "先調整本句起迄時間" in result["message"]
+
+
+def test_editor_reports_each_saved_change_to_the_page():
+    result = ui(r"""
+(async()=>{
+ await load(front());const before=changes;
+ $('edadd').onclick();
+ console.log(JSON.stringify({before,after:changes}));
+})();
+""", "let changes=0;ctx.onChange=()=>changes++;")
+    assert result["after"] > result["before"]

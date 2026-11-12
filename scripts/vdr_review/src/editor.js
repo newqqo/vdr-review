@@ -205,7 +205,7 @@ function save(){if(applying)return;
  lastState=JSON.parse(JSON.stringify(state));
  try{localStorage.setItem(KEY,JSON.stringify(project()));cacheOK=true;}catch(e){cacheOK=false;}
  for(const c of reset)updRow(c);if(reset.length){updTool();drawStrip();}
- status();
+ status();ctx.onChange?.();
 }
 const shifted=ReviewState.shiftState;
 let resumed=null;const oldProgress=[];

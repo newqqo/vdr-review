@@ -277,3 +277,16 @@ console.log(JSON.stringify(out));
 """)
     assert result.pop("ok") is None
     assert set(result.values()) == {"core.vdr.logFormat"}, result
+
+
+def test_index_reports_progress_while_reading_aac_records():
+    # Reading thousands of records from a disc takes minutes; the page needs a count to show.
+    result = run_node("""
+(async()=>{
+  const seen=[];
+  const entries=[0,1,2].map(i=>entry('Ship/Internal_Storage/audio/202610230900/A1_'+i+'.dat',aac({stamp:'20261023090'+i+'00000'})));
+  await V.indexEntries(entries,(done,total)=>seen.push([done,total]));
+  console.log(JSON.stringify(seen));
+})().catch(e=>{console.error(e);process.exitCode=1});
+""")
+    assert result == [[1, 3], [2, 3], [3, 3]]

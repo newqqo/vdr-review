@@ -239,3 +239,34 @@ console.log(JSON.stringify({whole:run(''),custom:run('',fmtDT(t0+45*60000)),even
     assert data["whole"] == {"shown": "loadWindowWhole(2026-01-01 16:00:00,2026-01-01 17:30:00,+8,hoursMinutes(1,30))", "spanDisabled": True}
     assert data["custom"] == {"shown": "loadWindowCustom(2026-01-01 16:00:00,2026-01-01 16:45:00,+8,minutesOnly(45))", "spanDisabled": True}
     assert data["event"]["shown"].startswith("loadWindowMinutes(") and data["event"]["spanDisabled"] is False
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_timeline_ticks_follow_the_local_clock_and_stay_readable():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    start = source.index("const SEEK_INSET")
+    end = source.index(chr(10) + "}" + chr(10), start) + 3
+    code = source[start:end] + """
+const six=seekTicks(21600,1300,8*3600+7*60),short=seekTicks(5400,1300,0),narrow=seekTicks(5400,500,0);
+console.log(JSON.stringify({six:{step:six.step,first:six.times[0],count:six.times.length},short:{step:short.step,first:short.times[0]},narrow:narrow.step}));
+"""
+    proc = subprocess.run([NODE, "-e", code], check=True, capture_output=True, text=True, encoding="utf-8")
+    data = json.loads(proc.stdout)
+    # A 6-hour recording starting 08:07 local gets half-hour ticks on the clock: 08:30, 09:00, ...
+    assert data["six"] == {"step": 1800, "first": 23 * 60, "count": 12}
+    assert data["short"] == {"step": 300, "first": 0} and data["narrow"] == 900
+
+
+def test_transcript_panel_fits_the_window_and_has_a_compact_view():
+    html = (ROOT / "scripts/vdr_review/src/app.html").read_text(encoding="utf-8")
+    # The typing box must stay on screen on a 768-pixel-high laptop: the list shrinks, not the page.
+    assert "#edpanel{max-height:calc(100vh - 108px)}" in html and "#edpanel>#edlist{flex:1 1 auto" in html
+    assert 'id="edcompact"' in html and "#edlist.compact .er" in html
+    assert '<canvas id="seekmap"' in html
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+@pytest.mark.parametrize("name", sorted(path.name for path in (ROOT / "scripts/vdr_review/src").glob("*.js")))
+def test_every_source_module_parses(name):
+    # Most tests run extracted snippets, so a syntax error elsewhere in a module would otherwise go unnoticed.
+    subprocess.run([NODE, "--check", str(ROOT / "scripts/vdr_review/src" / name)], check=True, capture_output=True)

@@ -199,7 +199,7 @@ def test_primary_runtime_transcription_labels_are_not_tied_to_a_specific_service
     assert markup.nodes["imSrtBtn"]["details"] == ["transcriptionFlow"]
 
 
-def test_subtitle_list_has_independent_height_between_header_and_composer_footer():
+def test_subtitle_list_fills_the_panel_between_header_and_composer_footer():
     source = Path(SRC, "app.html").read_text(encoding="utf-8")
     markup = WorkbenchMarkup()
     markup.feed(source)
@@ -218,12 +218,11 @@ def test_subtitle_list_has_independent_height_between_header_and_composer_footer
     assert order.index("edtool") < order.index("edlist") < order.index("edcomposer") < order.index("keyboardHelp")
 
     def rules(selector):
-        blocks = re.findall(re.escape(selector) + r"\s*\{([^{}]*)\}", source)
+        blocks = re.findall(r"(?<![\w>.#-])" + re.escape(selector) + r"\s*\{([^{}]*)\}", source)
         return [dict(part.strip().split(":", 1) for part in block.split(";") if ":" in part) for block in blocks]
 
     panel = next(rule for rule in rules("#edpanel") if rule.get("display") == "flex")
     assert panel["flex-direction"] == "column"
-    assert not {"height", "max-height"}.intersection(panel)
     assert panel.get("overflow") != "hidden"
     assert rules(".edhead")[0]["flex"] == rules(".edfoot")[0]["flex"] == "none"
     subtitle_rules = rules("#edlist")
@@ -234,9 +233,18 @@ def test_subtitle_list_has_independent_height_between_header_and_composer_footer
     assert re.fullmatch(r"clamp\(320px,\s*calc\(100vh\s*-\s*430px\),\s*700px\)", base["height"])
     assert all(rule.get("flex", "none") == "none" for rule in subtitle_rules)
     assert any(rule.get("height") == "clamp(360px,55vh,640px)" for rule in subtitle_rules)
-    short_height = re.search(r"@media\s*\(max-height:\s*600px\)\s*\{#edpanel\{([^}]*)\}#edlist\{([^}]*)\}\}", source)
+    # On a normal screen the sticky panel fits the window and the list takes the remaining height,
+    # so the composer stays visible on a 768-pixel-high laptop.
+    assert any(rule.get("max-height") == "calc(100vh - 108px)" for rule in rules("#edpanel"))
+    assert rules("#edpanel>*")[0]["flex"] == "none"
+    fill = rules("#edpanel>#edlist")[0]
+    assert fill["flex"] == "1 1 auto" and fill["height"] == "auto" and fill["min-height"] == "140px"
+    short_height = re.search(r"@media\s*\(max-height:\s*600px\)\s*\{#edpanel\{([^}]*)\}#edlist\{([^}]*)\}#edpanel>#edlist\{([^}]*)\}\}", source)
     assert short_height and "position:relative" in short_height[1] and "top:0" in short_height[1]
-    assert "height:360px" in short_height[2]
+    assert "max-height:none" in short_height[1] and "height:360px" in short_height[2]
+    assert "flex:none" in short_height[3] and "height:360px" in short_height[3]
+    # The short-screen and narrow-screen overrides come after the fill rule, so they win.
+    assert source.index("#edpanel>#edlist{flex:1 1 auto") < source.index("@media (max-width:1000px)") < source.index("@media(max-height:600px)")
 
 
 @pytest.mark.parametrize("playing", [False, True])
