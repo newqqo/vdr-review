@@ -102,6 +102,7 @@ const rows=[
  ['omittedChannels','未載入聲道：{channels}','Omitted channels: {channels}','未読込チャンネル：{channels}','未加载声道：{channels}'],
  ['noGaps','✓ 依索引未發現缺段（{count} 個 {codec} 錄音檔）；尚未獨立校時','✓ No indexed gaps ({count} {codec} files); independent clock verification still required','✓ 索引上の欠損なし（{codec}録音{count}ファイル）。独立した時刻照合は未実施','✓ 按索引未发现缺段（{count} 个 {codec} 录音文件）；尚未独立校时'],
  ['dataChannel','⚠ 本聲道','⚠ This channel','⚠ このチャンネル','⚠ 本声道'],
+ ['repeatedLead','{count} 個 AAC 分鐘檔開頭重錄了上一檔最後的音框；這段改用上一檔的完整解碼，不列為重疊。','{count} AAC records begin by repeating the last frames of the previous record; that audio is played from the previous record, which decoded it fully, and is not listed as an overlap.','{count} 個の AAC 記録は前の記録の最後のフレームを先頭で繰り返しています。この部分は完全に復号された前の記録から再生し、重複として扱いません。','{count} 个 AAC 分钟文件开头重录了上一文件最后的音框；这段改用上一文件的完整解码，不列为重叠。'],
  ['gapDetails','無資料 {count} 段（斜線區沒有錄音資料，並非安靜）：','{count} missing intervals (hatched areas have no recording, not silence): ','データ欠損{count}区間（斜線部は録音なし。無音ではありません）：','无数据 {count} 段（斜线区无录音数据，并非安静）：'],
  ['overlapDetails','分鐘檔重疊 {count} 段（後一檔覆蓋前一檔）：','{count} overlapping intervals (later records overwrite earlier ones): ','分単位ファイルの重複{count}区間（後の記録で上書き）：','分钟文件重叠 {count} 段（后一文件覆盖前一文件）：'],
  ['rejectedDetails','異常檔 {count} 個未載入','{count} rejected files were not loaded','異常ファイル{count}件は未読込','{count} 个异常文件未加载'],

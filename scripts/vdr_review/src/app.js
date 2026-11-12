@@ -639,7 +639,8 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
       alert.onclick = () => { if ($('dataDetails')) $('dataDetails').open = true; };
     }
     const chips = arr => arr.slice(0, 6).map(([a, b]) => '<button class="chip ghost" data-t="' + a + '">' + fmtClock(T0 + a + OFS).slice(0, 8) + '–' + fmtClock(T0 + b + OFS).slice(0, 8) + ' (' + esc(fmtDur(b - a)) + ')</button>').join('') + (arr.length > 6 ? esc(tr('moreSegments', { count: arr.length })) : '');
-    const omitted = (q.pending_records ? '<br><span class="note">' + esc(tr('pendingRecords', { count: q.pending_records })) + '</span>' : '') + (S.skippedChannels.length ? '<br><span class="warn">' + esc(tr('omittedChannels', { channels: S.skippedChannels.join(', ') })) + '</span>' : '');
+    const omitted = (q.pending_records ? '<br><span class="note">' + esc(tr('pendingRecords', { count: q.pending_records })) + '</span>' : '')
+      + (q.repeated_lead_records ? '<br><span class="note">' + esc(tr('repeatedLead', { count: q.repeated_lead_records })) + '</span>' : '') + (S.skippedChannels.length ? '<br><span class="warn">' + esc(tr('omittedChannels', { channels: S.skippedChannels.join(', ') })) + '</span>' : '');
     if (!q.gaps.length && !q.overlaps.length && !q.bad.length) { box.innerHTML = '<span class="ok">' + esc(tr('noGaps', { count: c.sources.length, codec: c.codec.toUpperCase() })) + '</span>' + omitted; return; }
     box.innerHTML = '<span class="warn">' + esc(tr('dataChannel')) + '</span> ' +
       (q.gaps.length ? esc(tr('gapDetails', { count: q.gaps.length })) + chips(q.gaps) : '') +
@@ -662,7 +663,7 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
       channel: ch, sample_rate: c.rate, codec: c.codec, decoder: c.codec === 'aac' ? 'Browser WebAudio AAC, mono; no time stretch; per-record decoded sample counts below' : 'G.726 3-bit big-endian; decoder reset per 60-second record', decoder_records: c.decoder,
       window_utc: [new Date(W0).toISOString(), new Date(W1).toISOString()], local_tz_hours: TZ / 3600,
       navigation_window_utc: [new Date(W0).toISOString(), new Date(W1).toISOString()], navigation_scope: 'Navigation sources only cover the loaded review window plus a ten-minute guard; they do not establish navigation coverage for an entire-source audio export.',
-      timing: 'G.726 uses filename UTC; AAC uses container header UTC. Independent clock verification required. Missing intervals are zero-filled, not evidence of silence. Later records overwrite overlapping samples.',
+      timing: 'G.726 uses filename UTC; AAC uses container header UTC. Independent clock verification required. Missing intervals are zero-filled, not evidence of silence. An AAC record whose stamp falls 1-4 whole frames (within 10 ms) inside the previous record repeats those frames; it is placed right after the previous record and its repeated lead samples (lead_duplicate_samples in sources) are taken from the previous record, whose copy decoded with full history. Other overlaps: later records overwrite overlapping samples.',
       time_correction: { offset_s: OFS, basis: OFS_BASIS, note: 'corrected display time = source timestamp + offset_s; audio samples unchanged' },
       gaps_s: c.qa.gaps, overlaps_s: c.qa.overlaps, rejected_files: c.qa.bad, omitted_channels: S.skippedChannels,
       sources: c.sources, navigation_sources: S.logSources, external_ais_sources: S.csvSources,

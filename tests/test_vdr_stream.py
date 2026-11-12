@@ -352,3 +352,34 @@ console.log(JSON.stringify({error,hashBad:st.channels.C1.qa.bad,first,second,qa:
     assert result["qa"]["gaps"] == [[0, 120]]
     assert len(result["qa"]["bad"]) == 1 and not result["known"]
     assert result["stats"]["decodedRecords"] == 0
+
+
+def test_aac_record_that_repeats_the_previous_frame_uses_the_fully_decoded_copy():
+    # Observed on a real export: each AAC minute record repeats the last whole frame(s) of the previous
+    # record so it can decode on its own. Its first frame decodes without history and is distorted
+    # (marked -1 here); the previous record holds a correct copy of the same audio.
+    result = run_node("""
+const rate=8000,F=470,step=(F-1)*1024;
+function aacRecord(i){
+ const startMs=epoch+Math.round(i*step/rate*100)*10,d=new Date(startMs),p=(n)=>String(n).padStart(2,'0');
+ const stamp=d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+p(d.getUTCHours())+p(d.getUTCMinutes())+p(d.getUTCSeconds())+p(Math.floor(d.getUTCMilliseconds()/10));
+ const frame=[0xff,0xf1,108,64,1,0x1f,0xfc,0],b=new Uint8Array(80+F*8),view=new DataView(b.buffer);
+ b.set(Buffer.from('VoyageDtRec '+stamp));b.set([0xff,0xff,2,0],44);view.setUint32(48,F*8,false);
+ b.set(Buffer.from(stamp),52);b.set(Buffer.from('C1'),68);for(let k=0;k<F;k++)b.set(frame,72+k*8);b.set([0,0,13,10,0,0,13,10],b.length-8);
+ return {start:startMs,path:'root/Internal_Storage/audio/202601052000/C1_'+i+'.dat',duration:F*1024/rate,rate,codec:'aac',frames:F,
+  size:b.length,sha256:crypto.createHash('sha256').update(b).digest('hex'),file:{size:b.length,arrayBuffer:async()=>b.slice().buffer}};
+}
+global.VDRMedia={decodeAAC:async(parts,r,total)=>{const i=+parts[0].name.split('C1_')[1].split('.')[0],pcm=new Int16Array(total);
+ for(let j=0;j<total;j++)pcm[j]=j<1024?-1:(i*step+j)%30000;return {pcm:pcm.buffer,decoded:[{samples:total,decoder_samples:total}]};}};
+const files=[aacRecord(0),aacRecord(1)],W1=epoch+(step+F*1024)/rate*1000;
+const st=S.createStore({audio:{C1:files},W0:epoch,W1});
+const v=(await st.readRange('C1',0,120)).pcm;let cold=0,jumps=0;
+for(let j=1025;j<v.length;j++){if(v[j]===-1)cold++;else if(v[j-1]!==-1&&v[j]!==(v[j-1]+1)%30000)jumps++;}
+const c=st.channels.C1;
+console.log(JSON.stringify({cold,jumps,overlaps:c.qa.overlaps,gaps:c.qa.gaps,repeated:c.qa.repeated_lead_records,
+ lead:c.sources.map(x=>x.lead_duplicate_samples||0),envKnown:Array.from(c.envKnown.subarray(1100,1300)).every(Boolean)}));
+""")
+    assert result["cold"] == 0 and result["jumps"] == 0, result
+    assert result["overlaps"] == [] and result["gaps"] == [] and result["repeated"] == 1
+    # The waveform has no hole where the repeated frame was dropped.
+    assert result["lead"] == [0, 1024] and result["envKnown"]

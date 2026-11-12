@@ -11,6 +11,7 @@ function coreError(key, params = {}) {
 }
 const MAX_RANGE_SECONDS = 120;
 const DEFAULT_CACHE_BYTES = 32 * 1024 * 1024;
+const AAC_FRAME = 1024, STAMP_STEP_S = 0.01;
 
 function coverage(intervals, duration) {
   const iv = intervals.map(([a, b]) => [Math.max(0, a), Math.min(duration, b)])
@@ -57,7 +58,19 @@ function createStore({ audio, W0, W1, decodeG726, onUpdate = () => {}, maxCacheB
       verified: false, decoded: false }));
     records[ch] = files.map((f, i) => ({ f, source: sources[i], key: ch + ':' + i,
       offset: Math.round((f.start - W0) / 1000 * rate), samples: Math.round(f.duration * rate),
-      status: 'pending', receipt: null, rank: i + 1 }));
+      status: 'pending', receipt: null, rank: i + 1, lead: 0 }));
+    // An AAC record can repeat the previous record's last whole frames so it decodes on its own; the
+    // first repeated frame then decodes without history and is distorted. When the stamps (10 ms
+    // resolution) put a record that many frames inside the previous one, place it right after the
+    // previous record's own samples and play the repeated audio from the previous record.
+    if (codec === 'aac') for (let i = 1; i < records[ch].length; i++) {
+      const prev = records[ch][i - 1], r = records[ch][i], overlap = prev.offset + prev.samples - r.offset;
+      const frames = Math.round(overlap / AAC_FRAME);
+      if (frames >= 1 && frames <= 4 && Math.abs(overlap - frames * AAC_FRAME) <= Math.ceil(rate * STAMP_STEP_S)) {
+        r.offset = prev.offset + prev.samples - frames * AAC_FRAME; r.lead = frames * AAC_FRAME;
+        sources[i].lead_duplicate_samples = r.lead;
+      }
+    }
     channels[ch] = { rate, codec, env: new Uint8Array(Math.ceil(duration * envRate)),
       envKnown: new Uint8Array(Math.ceil(duration * envRate)), sources, decoder: [],
       qa: { gaps: [], overlaps: [], bad: [], indexedOnly: true, pending_records: files.length } };
@@ -67,19 +80,26 @@ function createStore({ audio, W0, W1, decodeG726, onUpdate = () => {}, maxCacheB
   if (!Object.keys(channels).length) throw coreError('stream.noAudio');
   function assertAlive() { if (!alive) throw coreError('stream.closed'); }
   function notify(ch) { if (alive) onUpdate(ch, channels[ch]); }
+  // Repeated lead samples come from the previous record, unless that record could not be used.
+  function leadOf(ch, r) { return r.lead && records[ch][r.rank - 2]?.status !== 'bad' ? r.lead : 0; }
   function refreshQA(ch) {
     const c = channels[ch], list = records[ch];
-    const iv = list.filter(r => r.status !== 'bad').map(r => [r.offset / c.rate, (r.offset + r.samples) / c.rate]);
-    Object.assign(c.qa, coverage(iv, duration), {
+    const iv = list.filter(r => r.status !== 'bad').map(r => [(r.offset + leadOf(ch, r)) / c.rate, (r.offset + r.samples) / c.rate]);
+    const qa = coverage(iv, duration), last = list[list.length - 1], tail = qa.gaps[qa.gaps.length - 1];
+    // A record placed after its repeated frames can end up to one stamp step (10 ms) before the window
+    // end, which was computed from its rounded stamp. That is rounding, not missing audio.
+    if (last.lead && tail && duration - tail[1] < 1e-9 && tail[1] - tail[0] <= STAMP_STEP_S) qa.gaps.pop();
+    Object.assign(c.qa, qa, {
       indexedOnly: list.some(r => r.status === 'pending'),
-      pending_records: list.filter(r => r.status === 'pending').length
+      pending_records: list.filter(r => r.status === 'pending').length,
+      repeated_lead_records: list.filter(r => leadOf(ch, r)).length
     });
   }
-  function updateEnvelope(ch, r, pcm) {
-    const c = channels[ch], env = root.DSP.envelope(pcm, c.rate);
+  function updateEnvelope(ch, r, decoded) {
+    const c = channels[ch], lead = leadOf(ch, r), pcm = decoded.subarray(lead), env = root.DSP.envelope(pcm, c.rate);
     // Seeks can decode records out of order. Index rank preserves the same
     // last-record-wins overlap rule even after an earlier record is re-decoded.
-    const start = Math.round(r.offset / c.rate * envRate);
+    const start = Math.round((r.offset + lead) / c.rate * envRate);
     for (let k = 0; k < env.length; k++) {
       const p = start + k;
       if (p >= 0 && p < c.env.length && r.rank >= envOwners[ch][p]) {
@@ -160,11 +180,11 @@ function createStore({ audio, W0, W1, decodeG726, onUpdate = () => {}, maxCacheB
     maxReadSeconds = Math.max(maxReadSeconds, (b - a) / c.rate);
     const pcm = new Int16Array(b - a), intervals = [], receipts = [], sources = [];
     for (const r of records[ch]) {
-      if (r.offset >= b || r.offset + r.samples <= a) continue;
+      if (r.offset + leadOf(ch, r) >= b || r.offset + r.samples <= a) continue;
       checkSignal(signal);
       const decoded = await decode(ch, r); assertAlive(); checkSignal(signal);
       if (!decoded) continue;
-      const from = Math.max(a, r.offset), to = Math.min(b, r.offset + r.samples);
+      const from = Math.max(a, r.offset + leadOf(ch, r)), to = Math.min(b, r.offset + r.samples);
       if (to <= from) continue;
       pcm.set(decoded.subarray(from - r.offset, to - r.offset), from - a);
       intervals.push([(from - a) / c.rate, (to - a) / c.rate]);

@@ -10,7 +10,7 @@ Do not put completed real-case records, filenames or transcript excerpts in Git.
 | --- | --- | --- | --- | --- | --- |
 | JCY-1800 | Observed the same G.726 layout and offset-timed log as JCY-1850 on one export; one minute per channel decoded identically to FFmpeg; not a full model pass | Pending | Pending | Pending | Pending |
 | JCY-1850 | Observed G.726 layout and decoder comparisons; not a full model pass | Pending | Pending | Pending | Pending |
-| JCY-1900 | Observed `Internal_Storage` AAC-LC audio and time-stamped `L_` log layout on one export; not a full model pass | Pending | Pending | Pending | Pending |
+| JCY-1900 | Observed `Internal_Storage` AAC-LC audio (each record repeats the previous record's last 128 ms of frames) and time-stamped `L_` log layout on one export; not a full model pass | Pending | Pending | Pending | Pending |
 | JCY-1950 | AAC-LC route exists; firmware/export layout must be checked | Pending | Pending | Pending | Pending |
 
 Record locally for each run: tool source/build SHA, browser/OS version, physical
