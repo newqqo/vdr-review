@@ -51,6 +51,9 @@ const fmtDur = s => tr(s >= 60 ? 'duration' : 'seconds', { minutes: Math.floor(s
 const errHTML = (m) => '<span class="err">' + esc(m) + '</span>';
 
 // ---------- 1. 選資料夾 ----------
+// Real buttons open the hidden pickers, so Tab, Enter and Space reach the first step.
+$('fdirBtn').onclick = () => $('fdir').click();
+$('fcsvBtn').onclick = () => $('fcsv').click();
 $('fdir').onchange = async (e) => {
   const files = [...e.target.files];
   const selection = ++S.selection;
@@ -606,9 +609,10 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   // ---- 曲線 ----
   const cv = $('cv'), ctx = cv.getContext('2d'), xmin = T0, xmax = T0 + DUR, Lp = 70, Rp = 2330, TOP = 20, B = 540;
   const inWin = nav.series.filter((o) => o.utc >= xmin && o.utc <= xmax);
-  const smax = Math.max(10, Math.ceil(Math.max(0, ...inWin.map((o) => Math.max(o.sog || 0, o.stw || 0))) / 2) * 2);
+  // reduce, not Math.max(...list): a two-day recording has more samples than a call can take as arguments.
+  const smax = Math.max(10, Math.ceil(inWin.reduce((m, o) => Math.max(m, o.sog || 0, o.stw || 0), 0) / 2) * 2);
   const hs = inWin.map((o) => o.hdg).filter((v) => v != null);
-  let hmin = hs.length ? Math.floor(Math.min(...hs) / 20) * 20 : 0, hmax = hs.length ? Math.ceil(Math.max(...hs) / 20) * 20 : 360;
+  let hmin = hs.length ? Math.floor(hs.reduce((m, v) => Math.min(m, v)) / 20) * 20 : 0, hmax = hs.length ? Math.ceil(hs.reduce((m, v) => Math.max(m, v)) / 20) * 20 : 360;
   if (hmax - hmin < 40) hmax = hmin + 40;
   const X = (t) => Lp + (t - xmin) / (xmax - xmin) * (Rp - Lp), Ys = (v) => B - (v / smax) * (B - TOP), Yh = (v) => B - (v - hmin) / (hmax - hmin) * (B - TOP), Yd = (d) => Ys(Math.min(d, 500) / 500 * smax);
   let markers = [];

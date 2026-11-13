@@ -148,3 +148,25 @@ console.log(JSON.stringify({{first:run([0]),pair:run([5,6]),spike:run([7]),last:
     assert result["pair"] == {"kept": [i for i in range(12) if i not in (5, 6)], "outliers": 2}
     assert result["spike"] == {"kept": [i for i in range(12) if i != 7], "outliers": 1}
     assert result["last"] == {"kept": list(range(11)), "outliers": 1}
+
+
+@needs_node
+def test_outlier_filter_keeps_long_voyages_and_checks_speed_across_long_gaps():
+    result = run_node(f"""
+const G=require('{SRC}/gatehouse.js');
+const t0=Date.UTC(2026,0,1),run=pts=>{{const r=G.merge([{{tracks:{{'999000001':pts}},names:{{}},rows:pts.length,skipped:0}}]);
+ const kept=r.tracks['999000001'];return {{kept:kept.length,outliers:r.outliers,first:kept[0][0]-t0,last:kept.at(-1)[0]-t0}};}};
+// Four hours at about 17 kn: 124 km end to end, so both ends lie far from the middle of the track.
+const voyage=Array.from({{length:121}},(_,i)=>[t0+i*120000,22,120+1.2*i/120,17,90,null]);
+// A track that crosses the 180 degree meridian.
+const dateline=Array.from({{length:61}},(_,i)=>[t0+i*60000,10,((179.9+0.005*i+180)%360)-180,16,90,null]);
+// One fix 45 km away, 11 minutes after the last real one; the track then resumes where it was.
+const gap=[...Array.from({{length:20}},(_,i)=>[t0+i*10000,22.5,120.25+i*0.0001,5,90,null]),[t0+850000,22.905,120.25,5,90,null],
+ ...Array.from({{length:20}},(_,i)=>[t0+1510000+i*10000,22.5,120.252+i*0.0001,5,90,null])];
+// More fixes than one call can take as spread arguments.
+const big=Array.from({{length:150000}},(_,i)=>[t0+i*1000,22,120,0,0,null]);
+console.log(JSON.stringify({{voyage:run(voyage),dateline:run(dateline),gap:run(gap),big:run(big).kept}}));""")
+    assert result["voyage"] == {"kept": 121, "outliers": 0, "first": 0, "last": 240 * 60000}
+    assert result["dateline"]["kept"] == 61 and result["dateline"]["outliers"] == 0
+    assert result["gap"]["kept"] == 40 and result["gap"]["outliers"] == 1
+    assert result["big"] == 150000

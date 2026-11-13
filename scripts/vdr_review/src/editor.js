@@ -6,6 +6,29 @@ if(typeof module!=='undefined'&&module.exports){require('./i18n_editor.js');if(t
 const tr=(key,params)=>VDRI18n.t('editor.'+key,params);
 function editorError(key,params={},paramKeys={}){const error=new Error(tr(key,params));error.i18nKey='editor.'+key;error.i18nParams=params;error.i18nParamKeys=paramKeys;return error;}
 const errorText=error=>VDRI18n.errorText(error);
+// A speaker-suggestion file is outside input: check every entry before it replaces the current
+// suggestions, so accepting one can never write an invalid speaker that blocks saving.
+function checkSuggestions(d){
+ const plain=v=>v!==null&&typeof v==='object'&&!Array.isArray(v),num=v=>typeof v==='number'&&Number.isFinite(v);
+ const bad=detail=>{throw editorError('suggestionsInvalid',{detail});};
+ if(!plain(d)||!plain(d.suggestions))bad('suggestions');
+ if(d.method!==undefined&&(typeof d.method!=='string'||d.method.length>200))bad('method');
+ let count=0;
+ for(const [ch,entries] of Object.entries(d.suggestions)){
+  const at='suggestions.'+ch.slice(0,40);
+  if(!ch||ch.length>40||!plain(entries))bad(at);
+  for(const [id,g] of Object.entries(entries)){
+   const here=at+'.'+id.slice(0,20);
+   if(!/^[1-9]\d{0,15}$/.test(id))bad(here);
+   if(!plain(g)||typeof g.spk!=='string'||!g.spk.trim()||g.spk.length>1000)bad(here+'.spk');
+   if(!num(g.score))bad(here+'.score');
+   if(g.margin!=null&&!num(g.margin))bad(here+'.margin');
+   if(g.confident!==undefined&&typeof g.confident!=='boolean')bad(here+'.confident');
+   if(++count>1000000)bad('suggestions');
+  }
+ }
+ return count;
+}
 // File writes are explicit. Browser recovery never counts as a saved case file.
 function createFileSession(writer){
  let revision=0,savedRevision=0,handle=null,busy=false,generation=0;
@@ -223,7 +246,7 @@ const sortCues=()=>cues().sort((a,b)=>a.start-b.start||a.end-b.end);
 const find=id=>cues().find(c=>c.id===id);
 let active=null,playUntil=null,boundedCueId=null,lastCur=null,composerSelected=false,playbackRowKey='';
 const compose=$('edcompose');let composeEntry=null,composeIME=false,composeBlurred=false;
-const SKEY=KEY+'_sugg';let SUG={};try{SUG=JSON.parse(localStorage.getItem(SKEY)||'{}')}catch(e){}
+const SKEY=KEY+'_sugg';let SUG={};try{const cached=JSON.parse(localStorage.getItem(SKEY)||'null');if(cached){checkSuggestions(cached);SUG=cached;}}catch(e){}
 const sugOf=c=>{const m=(SUG.suggestions||{})[sel.value];return m?m[String(c.id)]:null};
 // ---- 講者列 ----
 function renderSpk(){$('spkbar').innerHTML=spks.map((s,i)=>'<button class="chip" data-spk="'+esc(s)+'" style="--c:'+color(s)+'" title="'+(i<9?'Alt+'+(i+1):'')+'">'+(i<9?'<b>'+(i+1)+'</b> ':'')+esc(s)+'</button>').join('')+
@@ -327,7 +350,7 @@ function act(a){finishCompose();const c=find(active);if(!c&&a!=='add'){flash(()=
  if(a==='wsplit'&&!rangeKnown(sel.value,c.start-0.6,c.end+0.8)){flash(()=>tr('waveSplitPending'));return;}
  if(['setS','setE','split','dup','merge','mergeP','del','add','auto','rep','trim','extract','wsplit'].includes(a))snap();
  if(a==='play')playCue(c);
- if(a==='setS'){c.start=now;if(c.end<c.start)c.end=c.start+1;sortCues();render()}
+ if(a==='setS'){c.start=now;if(c.end<c.start+0.1)c.end=c.start+1;sortCues();render()}
  if(a==='setE'){c.end=Math.max(now,c.start+0.1);render()}
  setTimeout(drawWave,0);
  if(a==='split'){const ta=list.querySelector('.er[data-id="'+c.id+'"] .tx');const txt=c.text||'';let pos=ta?ta.selectionStart:null;if(pos==null)pos=Math.floor(txt.length/2);pos=snapPos(txt,pos);if(pos<=0||pos>=txt.length){UNDO.pop();flash(()=>tr('splitCaret'));return}const t=splitTime(c);if(t==null){UNDO.pop();au.pause();au.currentTime=c.start+(c.end-c.start)*(pos/txt.length);drawWave();flash(()=>tr('splitSuggested'));return}const n={id:uid++,start:t,end:c.end,spk:c.spk,text:txt.slice(pos).trim(),orig:c.orig,origNo:c.origNo,st:0,ovl:c.ovl};c.text=txt.slice(0,pos).trim();c.end=t;arr.splice(i+1,0,n);render();select(n.id,true)}
@@ -335,7 +358,7 @@ function act(a){finishCompose();const c=find(active);if(!c&&a!=='add'){flash(()=
  if(a==='rep'){const dur=Math.max(0.8,c.end-c.start);let t0;if(now>c.start+0.1&&now<c.end){t0=now;c.end=now}else if(now>=c.end&&now<=c.end+4){t0=now}else{t0=c.end}const n={id:uid++,start:t0,end:t0+dur,spk:'',text:c.text||'',orig:'',origNo:null,st:0,ovl:false,repOf:c.id};arr.splice(i+1,0,n);render();select(n.id,true);flash(()=>tr('readbackAdded'))}
  if(a==='trim'){if(!rangeKnown(sel.value,c.start,c.end)){UNDO.pop();flash(()=>tr('trimPending'));return}const env=ENV[sel.value],R=ENVD.rate;let f=-1,l=-1;for(let k=Math.floor(c.start*R);k<=Math.ceil(c.end*R);k++){if(env&&env[k]>64){if(f<0)f=k;l=k}}if(f<0){UNDO.pop();flash(()=>tr('trimNoActivity'));return}c.start=Math.max(c.start,f/R-0.15);c.end=Math.min(c.end,l/R+0.3);sortCues();render();select(c.id);flash(()=>tr('trimDone'))}
  if(a==='extract'){const ta=list.querySelector('.er[data-id="'+c.id+'"] .tx');const txt=c.text||'';let s0=ta?ta.selectionStart:0,s1=ta?ta.selectionEnd:0;if(s0===s1){s1=s0;s0=0}const piece=txt.slice(s0,s1).trim();if(!piece){UNDO.pop();flash(()=>tr('extractSelect'));return}let t0=now,t1;const nxt=arr.filter(o=>o!==c&&o.start>t0).map(o=>o.start);const lim=Math.min(...nxt.concat([t0+2.5]),c.start>t0?c.start:Infinity);t1=Math.max(t0+0.4,Math.min(t0+1.5,lim));c.text=(txt.slice(0,s0)+txt.slice(s1)).replace(/^[\s。，、]+/,'').trim();if(c.start<t1&&now<c.start+0.05&&s0===0)c.start=Math.min(c.end-0.1,Math.max(c.start,t1));const n={id:uid++,start:t0,end:t1,spk:'',text:piece,orig:c.orig,origNo:c.origNo,st:0,ovl:false};arr.push(n);sortCues();render();select(n.id,true);flash(()=>tr('extractDone'))}
- if(a==='wsplit'){const env=ENV[sel.value],R=ENVD.rate;if(!env){UNDO.pop();return}const nb=arr.filter(o=>o!==c),prevEnd=Math.max(c.start-0.6,...nb.filter(o=>o.end<=c.start+0.05).map(o=>o.end)),nextStart=Math.min(c.end+0.8,...nb.filter(o=>o.start>=c.end-0.05).map(o=>o.start));const k0=Math.max(0,Math.floor(prevEnd*R)),k1=Math.min(env.length-1,Math.ceil(nextStart*R)),TH=64,GAP=Math.round(0.15*R),MINL=Math.round(0.2*R);const segs=[];let st=-1,last=-1;for(let k=k0;k<=k1;k++){if(env[k]>TH){if(st<0)st=k;last=k}else if(st>=0&&k-last>GAP){if(last-st+1>=MINL)segs.push([st,last]);st=-1}}if(st>=0&&last-st+1>=MINL)segs.push([st,last]);if(segs.length<2){UNDO.pop();flash(()=>tr('waveNotSplit',{count:segs.length}));return}const parts=((c.text||'').match(/[^。．？?！!]+[。．？?！!]*/g)||[]).map(x=>x.trim()).filter(Boolean);const news=segs.map(([a0,b0],k)=>({id:k?uid++:c.id,start:Math.max(0,a0/R-0.1),end:(b0+1)/R+0.15,spk:k?'':c.spk,text:'',orig:c.orig,origNo:c.origNo,st:0,ovl:false}));parts.forEach((x,k)=>{const o=news[Math.min(k,news.length-1)];o.text=(o.text?o.text+' ':'')+x});const i0=arr.indexOf(c);arr.splice(i0,1,...news);sortCues();render();select(c.id,true);flash(()=>tr('waveSplitDone',{count:segs.length,parts:parts.length,warning:parts.length!==segs.length?tr('splitMismatch'):''}))}
+ if(a==='wsplit'){const env=ENV[sel.value],R=ENVD.rate;if(!env){UNDO.pop();return}const nb=arr.filter(o=>o!==c),prevEnd=nb.reduce((m,o)=>o.end<=c.start+0.05?Math.max(m,o.end):m,c.start-0.6),nextStart=nb.reduce((m,o)=>o.start>=c.end-0.05?Math.min(m,o.start):m,c.end+0.8);const k0=Math.max(0,Math.floor(prevEnd*R)),k1=Math.min(env.length-1,Math.ceil(nextStart*R)),TH=64,GAP=Math.round(0.15*R),MINL=Math.round(0.2*R);const segs=[];let st=-1,last=-1;for(let k=k0;k<=k1;k++){if(env[k]>TH){if(st<0)st=k;last=k}else if(st>=0&&k-last>GAP){if(last-st+1>=MINL)segs.push([st,last]);st=-1}}if(st>=0&&last-st+1>=MINL)segs.push([st,last]);if(segs.length<2){UNDO.pop();flash(()=>tr('waveNotSplit',{count:segs.length}));return}const parts=((c.text||'').match(/[^。．？?！!]+[。．？?！!]*/g)||[]).map(x=>x.trim()).filter(Boolean);const news=segs.map(([a0,b0],k)=>({id:k?uid++:c.id,start:Math.max(0,a0/R-0.1),end:(b0+1)/R+0.15,spk:k?'':c.spk,text:'',orig:c.orig,origNo:c.origNo,st:0,ovl:false}));parts.forEach((x,k)=>{const o=news[Math.min(k,news.length-1)];o.text=(o.text?o.text+' ':'')+x});const i0=arr.indexOf(c);arr.splice(i0,1,...news);sortCues();render();select(c.id,true);flash(()=>tr('waveSplitDone',{count:segs.length,parts:parts.length,warning:parts.length!==segs.length?tr('splitMismatch'):''}))}
  if(a==='mergeP'){if(i<=0){UNDO.pop();return}const p=arr[i-1];p.text=((p.text||'')+' '+(c.text||'')).trim();p.end=Math.max(p.end,c.end);if(c.orig&&c.orig!==p.orig)p.orig=(p.orig?p.orig+' ｜ ':'')+c.orig;arr.splice(i,1);active=p.id;render();select(p.id,true)}
  if(a==='dup'){c.ovl=true;const n={id:uid++,start:c.start,end:c.end,spk:'',text:'',orig:c.orig,origNo:c.origNo,st:0,ovl:true};arr.splice(i+1,0,n);render();select(n.id,true);const t=list.querySelector('.er[data-id="'+n.id+'"] .tx');if(t)t.focus()}
  if(a==='merge'){if(i>=arr.length-1)return;const n=arr[i+1];c.text=((c.text||'')+' '+(n.text||'')).trim();c.end=Math.max(c.end,n.end);if(n.orig&&n.orig!==c.orig)c.orig=(c.orig?c.orig+' ｜ ':'')+n.orig;arr.splice(i+1,1);render()}
@@ -672,6 +695,7 @@ const projectZero=projectNode('input','projectLegacyZero','',projectZeroLabel);p
 const projectZeroText=projectNode('span','','',projectZeroLabel);projectZeroLabel.title=tr('legacyZeroHelp');
 const projectPrepare=projectNode('button','projectLegacyPrepare','prepare',projectLegacy);projectPrepare.type='button';
 const projectSummary=projectNode('div','projectImportSummary','');projectSummary.setAttribute('role','status');
+const projectScope=projectNode('div','projectImportScope','mergeScope');projectScope.className='note';
 const projectConflicts=projectNode('details','projectImportConflicts','');projectConflicts.hidden=true;
 projectNode('summary','','conflictsTitle',projectConflicts);
 const projectConflictList=projectNode('div','projectImportConflictList','',projectConflicts);Object.assign(projectConflictList.style,{maxHeight:'200px',overflow:'auto',whiteSpace:'pre-wrap'});
@@ -682,11 +706,19 @@ const projectOther=projectNode('details','',''),projectOtherSummary=projectNode(
 projectOtherSummary.className='note';
 const projectReplace=projectNode('button','projectImportReplace','replace',projectOther);projectReplace.type='button';
 let pendingProject=null,projectImportGeneration=0;
+// A blank session has nothing to protect, so opening a saved case brings back all of it: merging adds
+// entries only and leaves event notes, the time offset and other settings at their current values.
+function blankSession(){return CH.every(ch=>!(state[ch]||[]).length)&&JSON.stringify(ctx.extra.get())===JSON.stringify(ctx.defaultExtra);}
+function projectButtons(blank){
+ const [first,other]=blank?[projectReplace,projectMerge]:[projectMerge,projectReplace];
+ projectActions.prepend(first);projectOther.appendChild(other);first.className='pbtn';other.className='';
+ staticText(projectReplace,blank?'openWhole':'replace');
+}
 function closeProjectImport(){projectImportGeneration++;pendingProject=null;projectPanel.hidden=true;}
 projectCancel.onclick=closeProjectImport;
 function showProjectPreview(){
  const pending=pendingProject;if(!pending||!pending.data)return;
- const merged=VDRProject.mergeProjects(project(),pending.data);pending.preview=merged;pending.current=content();
+ const merged=VDRProject.mergeProjects(project(),pending.data);pending.preview=merged;pending.current=content();projectButtons(blankSession());
  const s=merged.stats;ownText(projectSummary,()=>tr('importStats',{added:s.added,duplicates:s.duplicates,conflicts:s.conflicts?tr('importConflicts',{count:s.conflicts}):''}));
  projectMerge.disabled=false;projectReplace.disabled=false;projectConflicts.hidden=!s.conflicts;projectConflicts.open=false;for(const node of projectConflictList.children)localizedText.delete(node);projectConflictList.replaceChildren();
  for(const conflict of merged.conflicts.slice(0,100)){
@@ -719,7 +751,7 @@ projectMerge.onclick=()=>{
 };
 projectReplace.onclick=()=>{
  if(!pendingProject?.data)return;
- if(!confirm(tr('replaceConfirm',{unsaved:files.dirty()?tr('replaceUnsaved'):''})))return;
+ if(!blankSession()&&!confirm(tr('replaceConfirm',{unsaved:files.dirty()?tr('replaceUnsaved'):''})))return;
  // A converted v2/v3 file must not become the save target; saving asks for a new v4 master.
  try{const pending=pendingProject,legacy=pending.raw.version!==4;replaceProject(prepareImport(pending.data),legacy?null:pending.handle,true);if(legacy)files.changed();closeProjectImport();status();flash(()=>tr('progressLoaded'));}
  catch(e){ownText(projectSummary,()=>tr('loadFailed',{message:errorText(e)}));}
@@ -835,7 +867,11 @@ srtApply.onclick=()=>{
   if(sel.value!==ch){sel.value=ch;sel.dispatchEvent(new Event('change'));}active=null;
   save();render();pendingSrt=null;srtPanel.hidden=true;flash(()=>tr('srtDone',{count:got.length,channel:ch}));
  }catch(error){ownText(srtError,()=>tr('srtPending',{message:errorText(error)}));srtApply.disabled=true;}};
-$('imSug').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f)return;f.text().then(t=>{const d=JSON.parse(t.replace(/^﻿/,''));if(!d.suggestions){alert(tr('notSuggestions'));return}SUG=d;try{localStorage.setItem(SKEY,JSON.stringify(d))}catch(_){}const n=Object.values(d.suggestions).reduce((a,m)=>a+Object.keys(m).length,0);flash(()=>tr('suggestionsImported',{count:n,method:d.method}));render()})};
+$('imSug').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+ let d,n;try{if(f.size>20*1024*1024)throw editorError('suggestionsInvalid',{detail:'size'});d=JSON.parse((await f.text()).replace(/^﻿/,''));
+  if(!d||typeof d!=='object'||!('suggestions' in d)){alert(tr('notSuggestions'));return}n=checkSuggestions(d);}
+ catch(err){alert(err?.i18nKey?errorText(err):tr('suggestionsInvalid',{detail:errorText(err)}));return}
+ SUG=d;try{localStorage.setItem(SKEY,JSON.stringify(d))}catch(_){}flash(()=>tr('suggestionsImported',{count:n,method:d.method||''}));render()};
 $('edreset').onclick=()=>{finishCompose();if(!cues().length){flash(()=>tr('channelEmpty'));return}if(confirm(tr('clearConfirm',{channel:sel.value}))){snap();state[sel.value]=[];active=null;render();save()}};
 $('exWav').onclick=async()=>{const button=$('exWav');button.disabled=true;flash(()=>tr('audioBusy'));
  try{await ctx.exportWav(sel.value);flash(()=>tr('audioDone'));}
@@ -886,6 +922,6 @@ function refreshLanguage(){
 const disposeI18n=VDRI18n.onChange(refreshLanguage);
 return {state:()=>state,render,changed:save,dirty:files.dirty,disposeI18n,refreshMedia(){drawStrip();drawWave();renderVhf();}};
 }
-const api={init,createFileSession,invalidateReviewedChanges,parseSrt,readSrtFile,validateTranscriptionReceipt,srtAlignment,countSrtOverlaps,waveWindow,waveTimeAt,activityWindow};
+const api={init,createFileSession,checkSuggestions,invalidateReviewedChanges,parseSrt,readSrtFile,validateTranscriptionReceipt,srtAlignment,countSrtOverlaps,waveWindow,waveTimeAt,activityWindow};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Editor=api;
 })(typeof self!=='undefined'?self:this);

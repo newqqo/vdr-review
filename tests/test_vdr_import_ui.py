@@ -416,3 +416,65 @@ def test_editor_reports_each_saved_change_to_the_page():
 })();
 """, "let changes=0;ctx.onChange=()=>changes++;")
     assert result["after"] > result["before"]
+
+
+def test_blank_session_opens_the_whole_case_and_merge_says_what_it_keeps():
+    result = ui(r"""
+(async()=>{
+ const prompts=[];global.confirm=m=>{prompts.push(m);return true;};
+ const saved=doc();saved.extra={...extra,events:'SYNTHETIC saved event',time_offset_s:30,time_offset_basis:'SYNTHETIC clock'};
+ await openImport(saved);
+ const blank={first:$('projectImportReplace').parentNode===$('projectImportCancel').parentNode,primary:$('projectImportReplace').className,
+  label:$('projectImportReplace').textContent,mergeIn:$('projectImportMerge').parentNode.tagName,scope:$('projectImportScope').textContent};
+ $('projectImportReplace').onclick();
+ const opened={prompts:prompts.length,events:extra.events,offset:extra.time_offset_s,basis:extra.time_offset_basis,cues:editor.state().A1.length};
+ await openImport(back());
+ const busy={primary:$('projectImportMerge').className,label:$('projectImportReplace').textContent,replaceIn:$('projectImportReplace').parentNode.tagName};
+ $('projectImportReplace').onclick();
+ console.log(JSON.stringify({blank,opened,busy,prompts:prompts.length}));
+})();
+""")
+    assert result["blank"] == {
+        "first": True, "primary": "pbtn", "label": "開啟案件（含事件筆記與校時）", "mergeIn": "DETAILS",
+        "scope": "「合併」只加入句子；事件筆記、校時與其他設定維持目前的值。",
+    }
+    # Nothing to protect in a blank session, so no confirmation; notes and the time offset come back.
+    assert result["opened"] == {"prompts": 0, "events": "SYNTHETIC saved event", "offset": 30,
+                                "basis": "SYNTHETIC clock", "cues": 1}
+    assert result["busy"] == {"primary": "pbtn", "label": "取代目前內容", "replaceIn": "DETAILS"}
+    assert result["prompts"] == 1
+
+
+def test_setting_start_at_the_end_keeps_an_entry_that_still_saves():
+    result = ui(r"""
+(async()=>{
+ await load(front());const c=editor.state().A1[0];selectId(c.id);au.currentTime=c.end;
+ $('edtool').events.click({target:{closest:()=>({dataset:{a:'setS'}})}});
+ console.log(JSON.stringify({start:c.start,end:c.end,cached:JSON.parse(storage.get('bound-key')).state.A1[0]}));
+})();
+""", setup="document.body.classList.contains=k=>k==='editing';")
+    assert (result["start"], result["end"]) == (2, 3)
+    assert (result["cached"]["start"], result["cached"]["end"]) == (2, 3)
+
+
+def test_speaker_suggestions_are_checked_before_they_replace_the_current_ones():
+    result = ui(r"""
+(async()=>{
+ await load(front());const first=alerts.length;
+ const file=d=>({target:{files:[{size:100,text:async()=>typeof d==='string'?d:JSON.stringify(d)}],value:'x'}});
+ await $('imSug').onchange(file({method:'synthetic',suggestions:{A1:{1:{spk:'引水人',score:0.9,margin:0.4,confident:true}}}}));
+ const good=storage.get('bound-key_sugg'),imported=$('edsave').textContent;
+ for(const bad of [{method:'synthetic',suggestions:{A1:{1:{score:1}}}},{suggestions:{A1:{1:{spk:' ',score:1}}}},
+  {suggestions:{A1:{x:{spk:'B',score:1}}}},{suggestions:{A1:{1:{spk:'B',score:'high'}}}},{suggestions:[]},'{not json',{other:1}])
+  await $('imSug').onchange(file(bad));
+ console.log(JSON.stringify({imported,kept:storage.get('bound-key_sugg')===good,messages:alerts.slice(first),
+  count:Editor.checkSuggestions({suggestions:{A1:{1:{spk:'B',score:1,margin:null},2:{spk:'C',score:0}},C1:{}}})}));
+})();
+""")
+    assert "已匯入講者建議 1 句" in result["imported"] and result["kept"]
+    messages = result["messages"]
+    assert len(messages) == 7 and messages[-1] == "不是講者建議檔"
+    assert [m.split("（")[-1] for m in messages[:5]] == [
+        "suggestions.A1.1.spk）", "suggestions.A1.1.spk）", "suggestions.A1.x）", "suggestions.A1.1.score）", "suggestions）"]
+    assert messages[5].startswith("講者建議檔格式不符，未匯入（")
+    assert result["count"] == 2

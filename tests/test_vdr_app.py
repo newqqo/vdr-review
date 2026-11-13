@@ -270,3 +270,14 @@ def test_transcript_panel_fits_the_window_and_has_a_compact_view():
 def test_every_source_module_parses(name):
     # Most tests run extracted snippets, so a syntax error elsewhere in a module would otherwise go unnoticed.
     subprocess.run([NODE, "--check", str(ROOT / "scripts/vdr_review/src" / name)], check=True, capture_output=True)
+
+
+def test_source_pickers_are_real_keyboard_buttons():
+    import re
+    html = (ROOT / "scripts/vdr_review/src/app.html").read_text(encoding="utf-8")
+    app = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    # A label around a hidden file input cannot be reached with Tab, so each picker is a button.
+    assert not re.search(r"<label[^>]*>(?:(?!</label>).)*type=\"file\"", html, re.S)
+    for button, picker in (("fdirBtn", "fdir"), ("fcsvBtn", "fcsv")):
+        assert f'<button type="button" id="{button}"' in html
+        assert f"$('{button}').onclick = () => $('{picker}').click();" in app
