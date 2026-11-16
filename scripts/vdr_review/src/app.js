@@ -37,7 +37,7 @@ $('sourceNotice').hidden = true;
 $('buildinfo').textContent = `v${BUILD_INFO.version} · git ${BUILD_INFO.commit} · ${BUILD_INFO.built_at.slice(0, 16).replace('T', ' ')} UTC`;
 const pad = (n) => String(n).padStart(2, '0');
 let TZ = 8 * 3600; // 當地時區（秒）
-const S = { cls: null, csv: null, csvNames: [], csvSources: [], selection: 0 };
+const S = { cls: null, csv: null, csvNames: [], csvSources: [], selection: 0, charts: [] };
 let activeEditor = null, activeLanguageRefresh = null;
 VDRUpdate.init({ $, version: BUILD_INFO.version, isDirty: () => !!activeEditor?.dirty() });
 
@@ -54,6 +54,8 @@ const errHTML = (m) => '<span class="err">' + esc(m) + '</span>';
 // Real buttons open the hidden pickers, so Tab, Enter and Space reach the first step.
 $('fdirBtn').onclick = () => $('fdir').click();
 $('fcsvBtn').onclick = () => $('fcsv').click();
+$('fchartBtn').onclick = () => $('fchart').click();
+$('fchartAddBtn').onclick = () => $('fchartAdd').click();
 $('fdir').onchange = async (e) => {
   const files = [...e.target.files];
   const selection = ++S.selection;
@@ -99,6 +101,42 @@ $('fdir').onchange = async (e) => {
   $('wstart').value = fmtDT(first); $('wend').value = fmtDT(last);
   setWindowFromEvent();
   S.canLoad = ok; $('loadbtn').disabled = !ok || S.csvReading; box.removeAttribute('aria-busy');
+};
+
+// 海圖圖層：使用者自選的 SHP 版 ZIP，只在本機解析；僅供參考，不是航行用海圖。
+const CHART_KINDS = ['lights', 'wrecks', 'depth', 'channels', 'other'];
+function chartName(layer) {
+  return tr('chart.layer', { kind: layer.kind === 'other' ? layer.name : tr('chart.' + layer.kind), geometry: tr('chart.' + layer.geometry) });
+}
+async function readCharts(files) {
+  const layers = [], failed = [];
+  for (const f of files) {
+    try { for (const layer of await VDRCharts.parseChartZip(new Uint8Array(await f.arrayBuffer()), f.name)) layers.push(layer); }
+    catch (err) { failed.push({ name: f.name, err }); }
+  }
+  return { layers, failed };
+}
+function chartSummary(layers, failed) {
+  const dates = [...new Set(layers.map((l) => l.date).filter(Boolean))].sort();
+  return layers.map((l) => '<span class="ok">' + esc(tr('chart.loaded', { layer: chartName(l), count: l.features.length.toLocaleString() })) + '</span>').join('<br>')
+    + (dates.length ? '<br>' + esc(tr('chart.dates', { dates: dates.join('、') })) : '')
+    + failed.map((x) => { const m = errorText(x.err); return '<br>' + errHTML(m.includes(x.name) ? m : x.name + '：' + m); }).join('');
+}
+$('fchart').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  const box = $('chartsum'); box.hidden = false; box.setAttribute('aria-busy', 'true'); text('chartsum', 'chart.reading');
+  const { layers, failed } = await readCharts(files);
+  S.charts = layers; box.removeAttribute('aria-busy');
+  html('chartsum', () => chartSummary(layers, failed));
+};
+$('fchartAdd').onchange = async (e) => {
+  const files = [...e.target.files]; e.target.value = '';
+  if (!files.length) return;
+  text('chartaddsum', 'chart.reading');
+  const { layers, failed } = await readCharts(files);
+  S.charts.push(...layers); S.addCharts?.(layers);
+  html('chartaddsum', () => chartSummary(layers, failed));
 };
 
 // 底圖在載入前選好並記住：選「不載入底圖」時，地圖從一開始就不會下載案件所在區域的圖磚。
@@ -489,13 +527,51 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
     }
   }
   const layerControl = L.control.layers(BASES, over, { collapsed: true }).addTo(map);
+  // 海圖畫在同一個畫布、壓在航跡下面：開啟圖層時再移到最底層，滑鼠仍能看到圖徵說明。
+  const CHART_COLOR = { lights: '#b45309', wrecks: '#374151', depth: '#2b7bb9', channels: '#c026d3', other: '#64748b' };
+  function chartTip(layer, p) {
+    const label = tr('chart.' + (layer.kind === 'other' ? 'feature' : layer.kind));
+    const name = [p.NOBJNM, p.OBJNAM].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' / ');
+    const lines = [name ? tr('chart.named', { kind: label, name }) : label];
+    if (Number.isFinite(p.VALDCO)) lines.push(tr('chart.contour', { depth: p.VALDCO }));
+    if (Number.isFinite(p.VALSOU)) lines.push(tr('chart.sounding', { depth: p.VALSOU }));
+    for (const key of ['WATLEV', 'RESTRN', 'NINFOM', 'INFORM']) if (typeof p[key] === 'string') lines.push(p[key]);
+    lines.push(tr('chart.dataDate', { date: layer.date || tr('chart.dateUnknown') }));
+    return lines.map(esc).join('<br>');
+  }
+  function chartLayer(layer) {
+    const g = L.layerGroup(), color = CHART_COLOR[layer.kind] || CHART_COLOR.other, dashed = layer.kind === 'channels' || layer.kind === 'lights';
+    for (const f of layer.features) {
+      let shape;
+      if (layer.geometry === 'point') {
+        const opts = { radius: layer.kind === 'wrecks' ? 4 : 3, color, weight: 1, fillColor: layer.kind === 'lights' ? '#facc15' : color, fillOpacity: 0.9 };
+        for (const at of Array.isArray(f.g[0]) ? f.g : [f.g]) L.circleMarker(at, opts).bindTooltip(() => chartTip(layer, f.p)).addTo(g);
+        continue;
+      }
+      if (layer.geometry === 'line') shape = L.polyline(f.g, { color, weight: layer.kind === 'depth' ? 1 : 1.5, opacity: layer.kind === 'depth' ? 0.55 : 0.9, dashArray: dashed ? '6 4' : null });
+      else shape = L.polygon(f.g, { color, weight: 1, opacity: 0.8, fillOpacity: 0.04, dashArray: layer.kind === 'channels' ? '6 4' : null });
+      shape.bindTooltip(() => chartTip(layer, f.p), { sticky: true }).addTo(g);
+    }
+    return g;
+  }
+  const chartGroups = new Set();
+  map.on('overlayadd', (e) => { if (chartGroups.has(e.layer)) e.layer.eachLayer((l) => l.bringToBack()); });
+  S.addCharts = (layers) => {
+    for (const layer of layers) {
+      const g = chartLayer(layer);
+      chartGroups.add(g); g.addTo(map); g.eachLayer((l) => l.bringToBack());
+      const entry = { layer: g, text: () => chartName(layer) };
+      overlayLabels.push(entry); layerControl.addOverlay(g, entry.text());
+    }
+  };
+  S.addCharts(S.charts);
   const layerToggle = layerControl.getContainer().querySelector('.leaflet-control-layers-toggle');
   function mapLabels(rebuild = false) {
     if (rebuild) {
       for (const layer of [photo, emap, blank]) layerControl.removeLayer(layer);
       for (const entry of overlayLabels) layerControl.removeLayer(entry.layer);
       layerControl.addBaseLayer(photo, tr('map.photo')).addBaseLayer(emap, tr('map.emap')).addBaseLayer(blank, tr('map.blank'));
-      for (const entry of overlayLabels) layerControl.addOverlay(entry.layer, tr(entry.key, { day: entry.day }));
+      for (const entry of overlayLabels) layerControl.addOverlay(entry.layer, entry.text ? entry.text() : tr(entry.key, { day: entry.day }));
       const previous = credit;
       credit = '<a href="https://maps.nlsc.gov.tw/pro/use_clause.jsp" target="_blank" rel="noopener">' + esc(tr('map.credit')) + '</a>';
       photo.options.attribution = credit; emap.options.attribution = credit;

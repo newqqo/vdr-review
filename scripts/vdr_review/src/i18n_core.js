@@ -156,7 +156,14 @@ const rows=[
  ['gatehouse.column','找不到欄位：{field}（標題列：{headers}）','Column not found: {field} (header row: {headers})','列が見つかりません：{field}（ヘッダー行：{headers}）','找不到字段：{field}（标题行：{headers}）'],
  ['gatehouse.zip','不是有效的 ZIP 檔','Not a valid ZIP file','有効な ZIP ファイルではありません','不是有效的 ZIP 文件'],
  ['gatehouse.directory','ZIP 目錄損壞','ZIP directory is damaged','ZIP のディレクトリーが破損しています','ZIP 目录损坏'],
- ['gatehouse.compression','不支援的壓縮方式：{method}','Unsupported compression method: {method}','未対応の圧縮方式：{method}','不支持的压缩方式：{method}']
+ ['gatehouse.compression','不支援的壓縮方式：{method}','Unsupported compression method: {method}','未対応の圧縮方式：{method}','不支持的压缩方式：{method}'],
+ ['charts.noShapefile','{name} 裡沒有 Shapefile（.shp）','{name} contains no shapefile (.shp)','{name} にシェープファイル（.shp）がありません','{name} 里没有 Shapefile（.shp）'],
+ ['charts.useShp','{name} 是 KML 版本；請改選同一份圖資的 SHP 版本 ZIP','{name} is the KML version; choose the SHP version of the same data instead','{name} は KML 版です。同じ地図データの SHP 版 ZIP を選んでください','{name} 是 KML 版本；请改选同一份图资的 SHP 版本 ZIP'],
+ ['charts.shp','{name} 的 .shp 檔損壞或不完整','{name}: the .shp file is damaged or incomplete','{name} の .shp ファイルが破損しているか不完全です','{name} 的 .shp 文件损坏或不完整'],
+ ['charts.dbf','{name} 的 .dbf 屬性表損壞','{name}: the .dbf attribute table is damaged','{name} の .dbf 属性表が破損しています','{name} 的 .dbf 属性表损坏'],
+ ['charts.shapeType','{name} 的圖形類型 {type} 不支援','{name}: shape type {type} is not supported','{name} の図形タイプ {type} には対応していません','{name} 的图形类型 {type} 不支持'],
+ ['charts.projection','{name} 不是經緯度座標（例如 TWD97 平面座標）；請選 WGS84 經緯度的圖資','{name} is not in longitude/latitude (for example TWD97 grid metres); choose WGS84 longitude/latitude data','{name} は経緯度座標ではありません（例：TWD97 平面座標）。WGS84 経緯度のデータを選んでください','{name} 不是经纬度坐标（例如 TWD97 平面坐标）；请选 WGS84 经纬度的图资'],
+ ['charts.tooLarge','{name} 的點數太多，無法在瀏覽器中顯示','{name} has too many points to draw in the browser','{name} は点が多すぎてブラウザーで表示できません','{name} 的点数太多，无法在浏览器中显示']
 ];
 for(const [index,locale] of ['zh-TW','en','ja','zh-CN'].entries()){
  const messages=Object.create(null);

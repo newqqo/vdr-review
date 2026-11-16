@@ -16,6 +16,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from synthetic_charts import chart_zip, sample_layers
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -54,8 +56,13 @@ def load_folder(page, folder: Path) -> None:
     page.locator("#mainpane").wait_for(state="visible", timeout=60000)
 
 
-def check_privacy_controls(browser, html: Path, folder: Path) -> dict:
-    """No-basemap before loading, change source, and clearing the browser copies, in a fresh profile."""
+def check_privacy_controls(browser, html: Path, folder: Path, out: Path) -> dict:
+    """No basemap and chart layers before loading, change source, and clearing the browser copies, in a fresh profile."""
+    layers = sample_layers()
+    charts = out / "SYNTHETIC_CHARTS_SHP.zip"
+    charts.write_bytes(chart_zip({k: v for k, v in layers.items() if not k.startswith("channel")}))
+    more = out / "SYNTHETIC_FAIRWAYS_SHP.zip"
+    more.write_bytes(chart_zip({k: v for k, v in layers.items() if k.startswith("channel")}))
     context = browser.new_context(viewport={"width": 1440, "height": 1080})
     network, errors = [], []
     context.route("http://**/*", lambda route: (network.append(route.request.url), route.abort()))
@@ -65,11 +72,24 @@ def check_privacy_controls(browser, html: Path, folder: Path) -> dict:
     page.on("dialog", lambda dialog: dialog.accept())
     page.goto(html.as_uri())
     page.locator("#basemap").select_option("blank")
+    page.locator("#fchart").set_input_files(str(charts))
+    page.wait_for_function("(()=>{const s=document.getElementById('chartsum');return !s.hidden&&!s.hasAttribute('aria-busy');})()")
+    summary = page.locator("#chartsum").inner_text()
+    assert "已讀取 海圖：助導航設施（點）：2 筆" in summary and "已讀取 海圖：等深線（線）：2 筆" in summary, summary
+    assert "圖資日期（依檔名）：2026-09-18" in summary, summary
     load_folder(page, folder)
     page.wait_for_timeout(1500)
-    # Chosen before loading, "no basemap" means the case area is never requested.
+    # Chosen before loading, "no basemap" means the case area is never requested; chart layers are local.
     assert not network, network
     assert page.locator("#map").get_attribute("data-basemap") == "不載入底圖（不連網）"
+    overlays = page.locator(".leaflet-control-layers-overlays").inner_text()
+    assert "海圖：助導航設施（點）" in overlays and "海圖：等深線（線）" in overlays, overlays
+    # More layers can be added after loading, from the navigation section.
+    page.locator("#navigationDetails > summary").click()
+    page.locator("#fchartAdd").set_input_files(str(more))
+    page.wait_for_function("document.getElementById('chartaddsum').textContent.includes('航道')")
+    assert "海圖：航道（區）" in page.locator(".leaflet-control-layers-overlays").inner_text()
+    page.locator("#navigationDetails > summary").click()
     page.locator("#edcompose").fill("SYNTHETIC kept in the browser copy")
     page.locator("#edcompose").press("Enter")
     page.locator("#changeSource").click()
@@ -88,8 +108,8 @@ def check_privacy_controls(browser, html: Path, folder: Path) -> dict:
     assert page.locator("#edlist .tx").count() == 0, "a cleared case must not come back"
     assert not network and not errors, (network, errors)
     context.close()
-    return {"no_basemap_requests": 0, "basemap_remembered": True, "change_source_restores_cache": True,
-            "cleared_cache_not_restored": True}
+    return {"no_basemap_requests": 0, "chart_layers_offline": True, "basemap_remembered": True,
+            "change_source_restores_cache": True, "cleared_cache_not_restored": True}
 
 
 def run(html: Path, executable: str, out: Path) -> dict:
@@ -243,8 +263,8 @@ def run(html: Path, executable: str, out: Path) -> dict:
         # After loading, the only requests allowed are basemap tiles (the "no basemap" layer avoids them).
         assert all(url.startswith("https://wmts.nlsc.gov.tw/wmts/") for url in network), network
         assert not errors, errors
-        result["privacy_controls"] = check_privacy_controls(browser, html, old)
-        print('Basemap, change-source and cache controls passed', flush=True)
+        result["privacy_controls"] = check_privacy_controls(browser, html, old, out)
+        print('Basemap, chart layer, change-source and cache controls passed', flush=True)
         browser.close()
     return result
 

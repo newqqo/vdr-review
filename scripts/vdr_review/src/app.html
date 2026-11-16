@@ -95,7 +95,7 @@ kbd{border:1px solid #cdd8d5;border-bottom-width:2px;border-radius:3px;padding:0
 #datast{font-size:13.5px;margin:4px 0}#datast .chip{margin:0 2px}.warn{color:#b35c00}
 details#about{margin-top:18px}details#about pre{max-height:240px;overflow:auto;background:#f3f6f5;padding:8px;font-size:11.5px;white-space:pre-wrap}
 .bigbtn{display:inline-block;background:var(--acc);color:#fff;border:0;border-radius:8px;padding:8px 18px;font-size:inherit;font-weight:700;cursor:pointer;margin:6px 10px 4px 0}.bigbtn:hover{background:var(--acc);filter:brightness(1.08)}
-.btn2{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:5px 14px;font-size:inherit;cursor:pointer;margin:6px 10px 4px 0;background:#fff}.bigbtn:disabled,.btn2:disabled{opacity:.6;cursor:default;filter:none}
+.chartpick{margin-top:8px}.btn2{display:inline-block;border:1px solid var(--acc);color:var(--acc);border-radius:8px;padding:5px 14px;font-size:inherit;cursor:pointer;margin:6px 10px 4px 0;background:#fff}.bigbtn:disabled,.btn2:disabled{opacity:.6;cursor:default;filter:none}
 .go{font-size:16px;padding:8px 26px}
 .ok{color:#2f9e44}.mode{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:14px;border:1px solid var(--grid);border-radius:999px;padding:3px 12px;background:#fff;cursor:pointer}
 .pbtn{font-size:13.5px;border:1px solid var(--acc);color:var(--acc);background:#fff;border-radius:6px;padding:2px 10px;cursor:pointer}.pbtn:hover{background:#e9f2f0}
@@ -126,7 +126,11 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
    </details></div></div>
  <div class="step"><div class="num">3</div><div><b data-i18n="ui.aisTracks">AIS 航跡</b> <span data-i18n="ui.optional">（選用）</span><br>
   <button type="button" id="fcsvBtn" class="btn2" data-i18n="ui.chooseCSV">選擇 CSV／ZIP</button><input type="file" id="fcsv" accept=".csv,.zip" multiple hidden>
-  <div id="csvsum" class="sum" hidden></div></div></div>
+  <div id="csvsum" class="sum" hidden></div>
+  <div class="chartpick"><b data-i18n="ui.chartLayers">海圖圖層</b> <span data-i18n="ui.optional">（選用）</span><br>
+  <button type="button" id="fchartBtn" class="btn2" data-i18n="ui.chooseCharts">選擇海圖 ZIP（SHP）</button><input type="file" id="fchart" accept=".zip" multiple hidden>
+  <span class="note" data-i18n="ui.chartNote">例如航道、等深線、助導航設施、沉船的 SHP 版 ZIP；只在本機讀取。僅供參考，不是航行用海圖，圖資日期可能與事故日期不同。</span>
+  <div id="chartsum" class="sum" hidden></div></div></div></div>
  <div class="step"><div class="num">4</div><div><label><span data-i18n="ui.basemap">地圖底圖</span> <select id="basemap"><option value="photo" selected data-i18n="ui.basemapPhoto">國土正射影像</option><option value="emap" data-i18n="ui.basemapEmap">國土電子地圖</option><option value="blank" data-i18n="ui.basemapNone">不載入底圖（不連網）</option></select></label> <span class="note" data-i18n="ui.basemapNote">線上底圖會向國土測繪中心下載案件所在區域的圖磚；敏感案件請選「不載入底圖」。會記住選擇。</span><br>
   <button id="loadbtn" class="go" disabled data-i18n="ui.load">開始載入</button> <button id="loadcancel" type="button" hidden data-i18n="ui.cancelLoad">取消載入</button> <span id="loadmsg" class="note"></span><div class="progress"><div id="loadbar"></div></div></div></div>
 </section>
@@ -161,6 +165,7 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
 </details>
 <details id="navigationDetails" class="secondary"><summary data-i18n="ui.navigationSettings">航行資料／設定</summary>
 <div class="vals"><span id="vsog"></span><span id="vstw"></span><span id="vhdg"></span><span id="dist"></span></div>
+<div class="bar"><button type="button" id="fchartAddBtn" data-i18n="ui.addCharts">加入海圖圖層（SHP ZIP）</button><input type="file" id="fchartAdd" accept=".zip" multiple hidden> <span id="chartaddsum" class="note" role="status"></span></div>
 <div class="bar"><label><input type="checkbox" id="follow" checked> <span data-i18n="ui.mapFollow">地圖跟隨</span></label><label><span data-i18n="ui.ghosts">船影</span> <select id="ghost"><option value="0" data-i18n="ui.hide">不顯示</option><option value="10" data-i18n="ui.tenSeconds">10秒</option><option value="20" selected data-i18n="ui.twentySeconds">20秒</option><option value="30" data-i18n="ui.thirtySecondsCompact">30秒</option></select></label></div>
 <div class="legend"><span class="sw" style="background:#00a3a3"></span><span data-i18n="ui.ownVessel">本船</span><span class="sw" style="background:#e07b00"></span><span data-i18n="ui.otherVessel">對方船</span><span class="sw" style="background:#ffe066"></span>AIS</div>
 <details class="card" id="setcard"><summary><b data-i18n="ui.hullSettings">船體模擬設定</b> <span class="note" id="setsum"></span></summary>

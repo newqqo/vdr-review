@@ -113,9 +113,10 @@ function coreError(key, params = {}) {
     return { tracks, names, rows: n, skipped };
   }
 
-  // 最小 ZIP 讀取（stored／deflate），取出所有 .csv
-  async function unzipCsvs(buf) {
-    const u8 = new Uint8Array(buf), dv = new DataView(buf.buffer || buf, u8.byteOffset, u8.byteLength);
+  // 最小 ZIP 讀取（stored／deflate），取出名稱符合 keep 的檔案。
+  // The view starts at the array's own offset, so a slice of a larger buffer reads correctly.
+  async function unzipEntries(buf, keep = () => true) {
+    const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
     let eocd = -1;
     for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
     if (eocd < 0) throw coreError('gatehouse.zip');
@@ -123,22 +124,27 @@ function coreError(key, params = {}) {
     let p = dv.getUint32(eocd + 16, true);
     const out = [];
     for (let k = 0; k < count; k++) {
-      if (dv.getUint32(p, true) !== 0x02014b50) throw coreError('gatehouse.directory');
+      if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) throw coreError('gatehouse.directory');
       const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
       const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
       const lho = dv.getUint32(p + 42, true);
       const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
       p += 46 + nlen + xlen + clen;
-      if (!/\.csv$/i.test(name)) continue;
+      if (name.endsWith('/') || !keep(name)) continue;
+      if (lho + 30 > u8.length || dv.getUint32(lho, true) !== 0x04034b50) throw coreError('gatehouse.directory');
       const start = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      if (start + csize > u8.length) throw coreError('gatehouse.directory');
       const data = u8.subarray(start, start + csize);
-      let raw;
-      if (method === 0) raw = data;
-      else if (method === 8) raw = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      let bytes;
+      if (method === 0) bytes = data;
+      else if (method === 8) bytes = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
       else throw coreError('gatehouse.compression', { method });
-      out.push({ name, text: new TextDecoder().decode(raw) });
+      out.push({ name, bytes });
     }
     return out;
+  }
+  async function unzipCsvs(buf) {
+    return (await unzipEntries(buf, (name) => /\.csv$/i.test(name))).map((e) => ({ name: e.name, text: new TextDecoder().decode(e.bytes) }));
   }
 
   function merge(results) {
@@ -190,7 +196,7 @@ function coreError(key, params = {}) {
     return out.reverse();
   }
 
-  const api = { parseCsvText, parseTime, unzipCsvs, merge, splitCsv };
+  const api = { parseCsvText, parseTime, unzipEntries, unzipCsvs, merge, splitCsv };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AISCSV = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -145,6 +145,8 @@ def test_the_same_commit_builds_byte_identical_files(tmp_path, monkeypatch):
     assert embedded_build_info(html)["built_at"] == "2026-01-01T00:00:00Z"
     with zipfile.ZipFile(first / "VDR核聽工具_同事版.zip") as archive:
         assert {info.date_time for info in archive.infolist()} == {(2026, 1, 1, 0, 0, 0)}
+        # The "made by" system byte is fixed too, or a Windows build differs from the Linux release build.
+        assert {info.create_system for info in archive.infolist()} == {3}
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "86400")  # before 1980, which ZIP cannot store
     assert BUILD.main(["--site", str(tmp_path / "old")]) == 0
     with zipfile.ZipFile(tmp_path / "old" / "VDR核聽工具_同事版.zip") as archive:

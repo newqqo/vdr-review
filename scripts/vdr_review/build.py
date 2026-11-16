@@ -31,7 +31,7 @@ SITE_FILES = {"index.html", SITE_HTML, PACKAGE_NAME, "version.json"}
 RELEASE_URL = "https://github.com/{repository}/releases/tag/v{version}"
 GITHUB_REMOTE = re.compile(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?")
 REPOSITORY = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+")
-MAIN_MODULES = ("i18n.js", "i18n_core.js", "i18n_ui.js", "i18n_editor.js", "i18n_app.js", "vdr.js", "gatehouse.js", "dsp.js", "review_state.js", "project.js", "media.js", "stream.js", "editor.js", "update.js", "app.js")
+MAIN_MODULES = ("i18n.js", "i18n_core.js", "i18n_ui.js", "i18n_editor.js", "i18n_app.js", "vdr.js", "gatehouse.js", "charts.js", "dsp.js", "review_state.js", "project.js", "media.js", "stream.js", "editor.js", "update.js", "app.js")
 WORKER_MODULES = ("i18n.js", "i18n_core.js", "g726.js", "dsp.js", "worker.js")
 
 
@@ -131,6 +131,8 @@ def write_package(package: Path, payload: bytes, built_at: str) -> None:
 2. 用 Chrome 或 Edge 開啟「開啟VDR核聽工具.html」。不需安裝、不需 Python。
    右上角可切換繁體中文／English／日本語／简体中文，會記住選擇；不會改寫字幕或案件內容。
 3. 選單一 VDR 原始資料夾。瀏覽器的「上傳」只是讀取授權，檔案不會傳到網路。
+   選用：開始畫面第 3 步可加 GateHouse AIS 與海圖圖層（航道、等深線、助導航設施、沉船等「SHP 版」ZIP）；
+   海圖只在本機讀取，僅供參考，不是航行用海圖，圖資日期可能和事故日期不同。
 4. 按「開始載入」；地圖與底圖自動顯示。播放錄音，在右側打字，按 Enter 完成一句。
    Shift+Enter 換行；中文字選字時的 Enter 不送出。點波形可切軌與跳聽。
 5. 按「儲存案件」選一個 JSON 主檔；後續更新同一檔案。
@@ -183,6 +185,7 @@ VDR 原本と案件 JSON は別途保管してください。認証済みの鑑�
         for name, data in (("開啟VDR核聽工具.html", payload), ("使用說明.txt", instructions.encode("utf-8-sig"))):
             entry = zipfile.ZipInfo(name, date_time=stamp)
             entry.compress_type, entry.external_attr = zipfile.ZIP_DEFLATED, 0o644 << 16
+            entry.create_system = 3  # Unix on every platform, or Windows builds differ from CI in this byte
             zf.writestr(entry, data)
 
 
