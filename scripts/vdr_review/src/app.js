@@ -60,6 +60,7 @@ $('fdir').onchange = async (e) => {
   S.cls = null; S.cover = null; S.identity = null; S.canLoad = false; $('loadbtn').disabled = true;
   const box = $('dirsum'); box.hidden = false;
   if (!files.length) { text('dirsum', 'noFiles'); return; }
+  box.setAttribute('aria-busy', 'true'); // until the summary below is final
   text('dirsum', 'indexingFiles', { count: files.length });
   const dirbar = $('dirbar'), showProgress = (done, total) => {
     if (selection !== S.selection || (done % 10 && done !== total)) return;
@@ -67,10 +68,10 @@ $('fdir').onchange = async (e) => {
     text('dirsum', 'indexingProgress', { done, total, percent: Math.floor(done / total * 100) });
   };
   try { const cls = await VDR.indexEntries(files.map((f) => ({ path: f.webkitRelativePath || f.name, file: f, size: f.size })), showProgress); if (selection !== S.selection) return; S.cls = cls; }
-  catch (err) { if (selection === S.selection) { $('dirprog').hidden = true; html('dirsum', () => esc(errorText(err))); } return; }
+  catch (err) { if (selection === S.selection) { $('dirprog').hidden = true; box.removeAttribute('aria-busy'); html('dirsum', () => esc(errorText(err))); } return; }
   $('dirprog').hidden = true;
   const ch = Object.keys(S.cls.audio).sort();
-  if (!ch.length) { html('dirsum', () => errHTML(tr('audioNotFound'))); $('loadbtn').disabled = true; return; }
+  if (!ch.length) { box.removeAttribute('aria-busy'); html('dirsum', () => errHTML(tr('audioNotFound'))); $('loadbtn').disabled = true; return; }
   const lines = [], probs = [];
   let first = Infinity, last = -Infinity, bad = 0;
   for (const c of ch) {
@@ -97,7 +98,26 @@ $('fdir').onchange = async (e) => {
   $('evtdate').value = fmtDT(first).slice(0, 10) === fmtDT(last - 1).slice(0, 10) ? fmtDT(first).slice(0, 10) : '';
   $('wstart').value = fmtDT(first); $('wend').value = fmtDT(last);
   setWindowFromEvent();
-  S.canLoad = ok; $('loadbtn').disabled = !ok || S.csvReading;
+  S.canLoad = ok; $('loadbtn').disabled = !ok || S.csvReading; box.removeAttribute('aria-busy');
+};
+
+// 底圖在載入前選好並記住：選「不載入底圖」時，地圖從一開始就不會下載案件所在區域的圖磚。
+const BASEMAPS = ['photo', 'emap', 'blank'];
+function rememberBasemap(key) { $('basemap').value = key; try { localStorage.setItem('vdrreview:basemap', key); } catch (e) { /* ignore */ } }
+try { const saved = localStorage.getItem('vdrreview:basemap'); if (BASEMAPS.includes(saved)) $('basemap').value = saved; } catch (e) { /* default */ }
+$('basemap').onchange = () => rememberBasemap($('basemap').value);
+
+// 只清案件暫存（逐字稿、設定、講者建議）；語言、版面、底圖等偏好保留。
+const CASE_CACHE = /^vdrreview4:|^vdrreview:.+:\d{4}-\d{2}-\d{2}T/;
+$('clearCaches').onclick = () => {
+  const keys = [];
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && CASE_CACHE.test(k)) keys.push(k); } } catch (e) { /* storage unavailable */ }
+  if (!keys.length) { text('cachemsg', 'clearAllNone'); return; }
+  const count = keys.filter((k) => !/(_sugg|:extra)$/.test(k)).length || keys.length;
+  if (!confirm(tr('clearAllConfirm', { count }))) return;
+  for (const k of keys) { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+  activeEditor?.stopCache();
+  text('cachemsg', activeEditor ? 'clearAllDoneOpen' : 'clearAllDone', { count });
 };
 
 // 精簡顯示：每句一行，一次看到更多句；只存在這台電腦的瀏覽器。
@@ -242,8 +262,9 @@ $('loadbtn').onclick = async () => {
   if (W1 <= S.cover[0] || W0 >= S.cover[1]) { html('loadmsg', () => errHTML(tr('noAudio'))); return; }
   if (W0 < S.cover[0] - 1000 || W1 > S.cover[1] + 1000) { html('loadmsg', () => errHTML(tr('outsideRecording'))); return; }
   $('loadbtn').disabled = true;
-  const locked = [...$('loadpane').querySelectorAll('input,select,button')];
+  const locked = [...$('loadpane').querySelectorAll('input,select,button')].filter((n) => n.id !== 'loadcancel');
   for (const input of locked) input.disabled = true;
+  $('loadcancel').hidden = false; // nothing is set up until loading finishes, so a reload cancels cleanly
   try {
     text('loadmsg', 'hashStart');
     if (!S.identity) S.identity = await recordingIdentity(S.cls, (n, total) => { text('loadmsg', 'hashProgress', { done: n, total }); bar.style.width = (n / total * 25).toFixed(0) + '%'; });
@@ -259,10 +280,12 @@ $('loadbtn').onclick = async () => {
     await startMain({ W0, W1, nav, ais, CHS: store.channels, store });
     bar.style.width = '100%'; text('loadmsg', 'complete');
   } catch (err) {
-    S.identity = null;
+    S.identity = null; $('loadcancel').hidden = true;
     html('loadmsg', () => errHTML(tr('loadFailed')) + '<details><summary class="note">' + esc(tr('loadDetails')) + '</summary>' + esc(errorText(err)) + '</details>'); for (const input of locked) input.disabled = false; $('span').disabled = !$('evt').value.trim(); console.error(err);
   }
 };
+
+$('loadcancel').onclick = () => location.reload();
 
 // 涵蓋檢查：cover＝各分鐘檔在時段內的 [起,迄]（秒）；回傳無資料區段與重疊區段（忽略0.05秒以內的取整誤差）
 function coverage(cover, dur) {
@@ -446,10 +469,10 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
     box.title = tr('map.tileCounts', { ok: tOk, failed: tErr });
   }
   const blank = L.layerGroup(), BASES = { [tr('map.photo')]: photo, [tr('map.emap')]: emap, [tr('map.blank')]: blank };
-  const baseName = tr('map.photo');
-  const map = L.map('map', { preferCanvas: true, layers: [BASES[baseName]] }).setView([ownMid[1], ownMid[2]], 15);
-  $('map').dataset.basemap = baseName;
-  map.on('baselayerchange', e => { $('map').dataset.basemap = e.name; if (e.layer === blank) { $('tilest').hidden = true; $('tilest').textContent = ''; } else tileSt(); });
+  const baseKey = BASEMAPS.includes($('basemap').value) ? $('basemap').value : 'photo', BY_KEY = { photo, emap, blank };
+  const map = L.map('map', { preferCanvas: true, layers: [BY_KEY[baseKey]] }).setView([ownMid[1], ownMid[2]], 15);
+  $('map').dataset.basemap = tr('map.' + baseKey);
+  map.on('baselayerchange', e => { $('map').dataset.basemap = e.name; rememberBasemap(e.layer === photo ? 'photo' : e.layer === emap ? 'emap' : 'blank'); if (e.layer === blank) { $('tilest').hidden = true; $('tilest').textContent = ''; } else tileSt(); });
   const over = {}, overlayLabels = [];
   // CSV 中的本船航跡依日期分圖層（可比對歷史航次）
   if (S.csv && ownM && S.csv.tracks[ownM]) {
@@ -821,6 +844,10 @@ async function startMain({ W0, W1, nav, ais, CHS, store }) {
   const updateCoverage = () => { for (const [k, c] of Object.entries(CHS)) coverageInfo[k] = { gaps_s: c.qa.gaps, overlaps_s: c.qa.overlaps, rejected_files: c.qa.bad.length, pending_records: c.qa.pending_records, indexed_only: c.qa.indexedOnly }; };
   updateCoverage();
   activeEditor?.disposeI18n?.();
+  $('changeSource').onclick = () => {
+    if (editor?.dirty() && !confirm(tr(editor.caching() ? 'changeSourceUnsaved' : 'changeSourceLost'))) return;
+    editor?.leave(); location.reload();
+  };
   activeEditor = editor = Editor.init({ au, sel, channels: Object.keys(CHS), T0, LT: TZ, ENV, ENVR: DSP.ENV_RATE, VHF, KEY, NAME,
     recordingId: S.identity, bundleEntries, exportClip, wav: (ch) => CHS[ch], extra, defaultExtra, exportWav, exports: () => exportHistory, ofs: () => OFS, legacy, dur: DUR, gaps: (ch) => (CHS[ch] ? CHS[ch].qa.gaps : []), pending: ch => CHS[ch]?.qa.pending_records || 0, envKnown: ch => CHS[ch]?.envKnown, coverage: coverageInfo,
     requestWaveforms, channelLabels: ch => chLabel(ch, CHS[ch]?.rate), onChange: () => drawSeekmap() });

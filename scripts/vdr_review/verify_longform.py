@@ -213,8 +213,8 @@ def open_page(browser, html: Path, synthetic: bool):
 
 def load_recording(page, source: Path, review_hours: int | None = None) -> dict:
     page.locator("#fdir").set_input_files(str(source), timeout=120000)
-    wait_until(page, lambda: not page.locator("#loadbtn").is_disabled()
-               or page.locator("#dirsum").inner_text() != "檢查錄音格式與日期中…", "source index")
+    wait_until(page, lambda: page.locator("#dirsum").is_visible()
+               and page.locator("#dirsum").get_attribute("aria-busy") is None, "source index")
     summary = page.locator("#dirsum").inner_text()
     assert not page.locator("#loadbtn").is_disabled(), summary
     if page.locator("#allRecording").count():

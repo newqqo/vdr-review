@@ -3,7 +3,9 @@
 (function (root) {
 'use strict';
 const I = typeof module !== 'undefined' && module.exports ? require('./i18n.js') : root.VDRI18n;
-const MANIFEST_URL = 'https://newqqo.github.io/vdr-review/version.json';
+// The build sets UPDATE_MANIFEST to the Pages site of the repository it publishes from, so a fork
+// checks its own site; '' means the build has no update source and the button stays disabled.
+const MANIFEST_URL = typeof UPDATE_MANIFEST === 'string' ? UPDATE_MANIFEST : 'https://newqqo.github.io/vdr-review/version.json';
 const SAVE_NAME = 'VDR核聽工具.html';
 const MAX_BYTES = 64 * 1024 * 1024;
 const TIMEOUT_MS = 120000;
@@ -97,6 +99,10 @@ function init({ $, version, isDirty }) {
   const offline = root.location.protocol === 'file:', label = offline ? 'update.check' : 'update.downloadOffline';
   let manifest = null, verified = null, busy = false;
   action.dataset.i18n = label; action.textContent = I.t(label);
+  if (!MANIFEST_URL) {
+    action.disabled = true; action.dataset.i18nTitle = 'update.noSource'; action.title = I.t('update.noSource');
+    return;
+  }
 
   function say(key, params = {}, isError = false) {
     panel.hidden = false;

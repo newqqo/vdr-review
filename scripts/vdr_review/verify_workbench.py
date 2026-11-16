@@ -836,14 +836,17 @@ def reopen_project(browser, html: Path, fixture: Path, out: Path) -> dict:
         expected = json.loads(destination.read_text(encoding="utf-8"))
         page.locator("#imJson").set_input_files(str(destination))
         page.locator("#projectImportPanel").wait_for(state="visible")
-        reveal_control(page, "#projectImportReplace")
-        evidence["allow_replace"] = True
-        page.locator("#projectImportReplace").click()
+        opener = page.locator("#projectImportReplace")
+        assert opener.is_visible() and opener.get_attribute("class") == "pbtn", "A blank session must offer the whole case first"
+        assert opener.inner_text() == "開啟案件（含事件筆記與校時）"
+        opener.click()
         page.locator("#projectImportPanel").wait_for(state="hidden")
         page.wait_for_function("Array.from(document.querySelectorAll('#edlist .tx')).some(e=>e.value==='合成聽寫第一句（已編輯）')")
         actual = save_project(page)
         assert actual["state"] == expected["state"], "Saved and reopened cue state differs"
-        assert len(evidence["dialogs"]) == 1 and evidence["dialogs"][0]["message"].startswith("確定取代目前全部聽打內容？")
+        for key in ("events", "time_offset_s", "time_offset_basis", "ais_source", "own_dims"):
+            assert actual["extra"].get(key) == expected["extra"].get(key), f"Reopened case lost {key}"
+        assert not evidence["dialogs"], evidence["dialogs"]
         validate_network(evidence)
         result.update(ok=True, source_bound=True, state_equal=True,
                       cues_by_channel={ch: len(cues) for ch, cues in actual["state"].items()})

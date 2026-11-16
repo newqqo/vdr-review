@@ -20,7 +20,7 @@ audio{width:100%}button,select,input{font:inherit;padding:3px 9px}
 #playbackBar{position:sticky;top:0;z-index:900;background:#fff;border:1px solid var(--grid);border-radius:8px;padding:7px 12px;margin:8px 0 12px;box-shadow:0 2px 8px #1838320a}
 #playbackBar .bar{margin:0;gap:6px 9px}#playbackBar .clock{font-size:21px}#playbackBar .go{font-size:14px;padding:5px 16px}
 #playbackBar input[type=range]{display:block;width:100%;margin:7px 0 1px}#playbackBar .jump-time{margin-left:auto}
-#sessioninfo{display:block;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#mapstatus:empty,#tilest:empty{display:none}
+.sessionbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#sessioninfo{display:block;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#mapstatus:empty,#tilest:empty{display:none}
 #navigationPane{min-width:0}#navigationPane #map{height:clamp(240px,42vh,480px);position:relative;isolation:isolate;z-index:0}#mapstatus{margin:5px 0;font-size:12px;color:var(--mut)}
 .leaflet-control-layers-toggle{background-image:none!important;width:auto!important;height:auto!important;padding:3px 9px;line-height:24px;font-size:13px;text-align:center}.leaflet-control-layers-toggle:empty::after{content:'☰'}
 .secondary{margin:8px 0;padding:8px 10px;border:1px solid var(--grid);border-radius:6px;background:#fff}.secondary>summary{font-size:13px;cursor:pointer;color:var(--mut)}.secondary[open]>summary{margin-bottom:7px}
@@ -127,11 +127,12 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
  <div class="step"><div class="num">3</div><div><b data-i18n="ui.aisTracks">AIS 航跡</b> <span data-i18n="ui.optional">（選用）</span><br>
   <button type="button" id="fcsvBtn" class="btn2" data-i18n="ui.chooseCSV">選擇 CSV／ZIP</button><input type="file" id="fcsv" accept=".csv,.zip" multiple hidden>
   <div id="csvsum" class="sum" hidden></div></div></div>
- <div class="step"><div class="num">4</div><div><button id="loadbtn" class="go" disabled data-i18n="ui.load">開始載入</button> <span id="loadmsg" class="note"></span><div class="progress"><div id="loadbar"></div></div></div></div>
+ <div class="step"><div class="num">4</div><div><label><span data-i18n="ui.basemap">地圖底圖</span> <select id="basemap"><option value="photo" selected data-i18n="ui.basemapPhoto">國土正射影像</option><option value="emap" data-i18n="ui.basemapEmap">國土電子地圖</option><option value="blank" data-i18n="ui.basemapNone">不載入底圖（不連網）</option></select></label> <span class="note" data-i18n="ui.basemapNote">線上底圖會向國土測繪中心下載案件所在區域的圖磚；敏感案件請選「不載入底圖」。會記住選擇。</span><br>
+  <button id="loadbtn" class="go" disabled data-i18n="ui.load">開始載入</button> <button id="loadcancel" type="button" hidden data-i18n="ui.cancelLoad">取消載入</button> <span id="loadmsg" class="note"></span><div class="progress"><div id="loadbar"></div></div></div></div>
 </section>
 
 <section id="mainpane" hidden>
-<span class="note" id="sessioninfo"></span>
+<div class="sessionbar"><span class="note" id="sessioninfo"></span><button id="changeSource" type="button" class="ghost" title="回到開始畫面，重新選擇資料夾與時段" data-i18n-title="ui.changeSourceHint" data-i18n="ui.changeSource">換資料夾／時段</button></div>
 <div id="playbackBar" aria-label="播放控制" data-i18n-aria-label="ui.playbackControls">
 <div class="bar">
  <button id="playbtn" class="go" data-i18n="ui.play">▶ 播放</button>
@@ -221,7 +222,7 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
     <button id="exCsv" data-i18n="ui.csvExport">表格（Excel 可開，全部聲道）</button><button id="exSrt" data-i18n="ui.srtExport">字幕檔 SRT（本聲道、本次時段）</button><button id="exWav" data-i18n="ui.wavExport">整段音檔 WAV＋來源清單（本聲道）</button></div></details>
    <details class="menu"><summary data-i18n="ui.other">⋯ 其他</summary><div>
     <button id="imSugBtn" data-i18n="ui.importSpeakerSuggestions">匯入講者建議（聲紋）</button><input type="file" id="imSug" accept=".json" hidden>
-    <button id="edreset" data-i18n="ui.clearChannel">清空本聲道全部句子</button></div></details></div></details>
+    <button id="edreset" data-i18n="ui.clearChannel">清空本聲道全部句子</button><button id="edclearcache" data-i18n="ui.clearThisCache">清除本案的瀏覽器暫存</button></div></details></div></details>
  </div>
  <details id="keyboardHelp" class="keys"><summary data-i18n="ui.shortcuts">快捷鍵</summary><span data-i18n="ui.shortcutHelp">Esc：暫停／繼續 · Ctrl+Enter：播本句 · Alt+↑↓：上下句 · Alt+1–9：講者 · Alt+Enter：已核並下一句 · Alt+X：分割 · Alt+W：依波形拆句 · Alt+M：抽出新句 · Alt+R：覆誦 · Alt+C：疊話 · Alt+S：摘錄 · Alt+Delete：刪句 · Alt+Z：復原</span></details>
 </aside>
@@ -233,6 +234,7 @@ body:not(.editing) .adv{display:none!important}body.editing .simple-only{display
 </section>
 <details id="about"><summary class="note" data-i18n="ui.about">關於本工具／授權</summary><div class="note">
  <p><span data-i18n="ui.version">版本：</span><span id="buildinfo"></span> · <span data-i18n="ui.sourceIncluded">原始碼包含在本 HTML 內，可直接檢視或修改。</span></p>
+ <p><button id="clearCaches" type="button" data-i18n="ui.clearCaches">清除此瀏覽器的所有案件暫存</button> <span id="cachemsg" role="status"></span><br><span data-i18n="ui.clearCachesNote">共用電腦用完後可按此清除。不影響已存的案件主檔，也不清除語言等偏好。</span></p>
  <p data-i18n="ui.aboutScope">本機輔助核聽工具，不是原廠播放器或鑑定結果。錄音、逐字稿不會自動上傳；底圖會連網。正式引用前，請以原廠播放或獨立時鐘核對。</p>
  <p data-i18n="ui.aboutFormats">支援已實作的 JRC G.726／AAC 格式，不代表 1800／1850／1900／1950 全機型已經實機驗證。聲音活動僅供定位，不代表音量、講者或確定發話；灰底未分析，斜線缺段。</p>
  <p data-i18n="ui.aboutTyping">開始輸入時記錄起點；Enter 完成一句，Shift+Enter 換行。點字幕跳播；已在文字框時可直接改字。選句後可拖波形起迄線，進階工具不限制快捷鍵。</p>

@@ -67,8 +67,7 @@ def test_colleague_package_only_contains_local_html_and_instructions(tmp_path):
     assert "VDRProject" in text and "VDRMedia" in text
     assert "evtdate" in text and "exBundle" in text
     assert "tileConsent" not in text
-    assert "const baseName = tr('map.photo')" in text
-    assert "layers: [BASES[baseName]]" in text
+    assert "layers: [BY_KEY[baseKey]]" in text
     assert "https://wmts.nlsc.gov.tw/wmts/PHOTO2/default/GoogleMapsCompatible/{z}/{y}/{x}" in text
     assert 'value="8" min="-12" max="14"' in text
 
@@ -281,3 +280,84 @@ def test_source_pickers_are_real_keyboard_buttons():
     for button, picker in (("fdirBtn", "fdir"), ("fcsvBtn", "fcsv")):
         assert f'<button type="button" id="{button}"' in html
         assert f"$('{button}').onclick = () => $('{picker}').click();" in app
+
+
+APP_STUBS = """
+const storage=new Map(Object.entries(INITIAL));
+const localStorage={get length(){return storage.size;},key:i=>[...storage.keys()][i]??null,getItem:k=>storage.has(k)?storage.get(k):null,
+ setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
+const nodes={},$=id=>nodes[id]||(nodes[id]={value:'photo'});
+const prompts=[],confirm=m=>{prompts.push(m);return ANSWER;};
+let shown='';const tr=(k,p)=>k+JSON.stringify(p||{}),text=(id,k,p)=>{shown=k+JSON.stringify(p||{});};
+"""
+
+
+def run_app_snippet(code, initial, answer=True):
+    stubs = APP_STUBS.replace("INITIAL", json.dumps(initial)).replace("ANSWER", json.dumps(answer))
+    proc = subprocess.run([NODE, "-e", stubs + code], check=True, capture_output=True, text=True, encoding="utf-8")
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_basemap_is_chosen_before_loading_and_remembered():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    snippet = source[source.index("// 底圖在載入前選好並記住"):source.index("// 只清案件暫存")]
+    code = snippet + """
+const first=$('basemap').value;$('basemap').value='emap';$('basemap').onchange();
+console.log(JSON.stringify({first,stored:storage.get('vdrreview:basemap')}));
+"""
+    assert run_app_snippet(code, {"vdrreview:basemap": "blank"}) == {"first": "blank", "stored": "emap"}
+    assert run_app_snippet(code, {"vdrreview:basemap": "elsewhere"})["first"] == "photo"
+    main = source[source.index("async function startMain("):]
+    # The map starts on the chosen layer, so "no basemap" never requests a tile, and later changes are kept.
+    assert "layers: [BY_KEY[baseKey]]" in main and "rememberBasemap(e.layer === photo" in main
+    html = (ROOT / "scripts/vdr_review/src/app.html").read_text(encoding="utf-8")
+    loadpane = html[html.index('<section id="loadpane"'):html.index("</section>")]
+    assert '<select id="basemap">' in loadpane and 'value="blank"' in loadpane
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_clearing_case_copies_keeps_preferences_and_stops_the_open_case():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    snippet = source[source.index("// 只清案件暫存"):source.index("// 精簡顯示：每句一行")]
+    initial = {"vdrreview4:" + "a" * 64 + ":2026-01-01": "{}", "vdrreview4:" + "a" * 64 + ":2026-01-01_sugg": "{}",
+               "vdrreview4:" + "b" * 64 + ":2026-01-02": "{}", "vdrreview:SYNTHETIC:2026-01-01T00:00:00.000Z": "{}",
+               "vdrreview:SYNTHETIC:2026-01-01T00:00:00.000Z:extra": "{}", "vdrreview:locale": "en",
+               "vdrreview:compact": "1", "vdrreview:basemap": "blank", "unrelated": "x"}
+    code = "let stopped=0;let activeEditor=OPEN?{stopCache(){stopped++;}}:null;" + snippet + """
+$('clearCaches').onclick();
+console.log(JSON.stringify({left:[...storage.keys()].sort(),prompts,shown,stopped}));
+"""
+    closed = run_app_snippet(code.replace("OPEN", "false"), initial)
+    assert closed["left"] == ["unrelated", "vdrreview:basemap", "vdrreview:compact", "vdrreview:locale"]
+    assert closed["prompts"] == ['clearAllConfirm{"count":3}'] and closed["shown"] == 'clearAllDone{"count":3}'
+    opened = run_app_snippet(code.replace("OPEN", "true"), initial)
+    assert opened["stopped"] == 1 and opened["shown"] == 'clearAllDoneOpen{"count":3}'
+    declined = run_app_snippet(code.replace("OPEN", "false"), initial, answer=False)
+    assert len(declined["left"]) == len(initial) and declined["shown"] == ""
+    empty = run_app_snippet(code.replace("OPEN", "false"), {"vdrreview:locale": "en"})
+    assert empty["prompts"] == [] and empty["shown"] == "clearAllNone{}"
+
+
+@pytest.mark.skipif(not NODE, reason="node is not installed")
+def test_change_source_reloads_only_after_unsaved_work_is_acknowledged():
+    source = (ROOT / "scripts/vdr_review/src/app.js").read_text(encoding="utf-8")
+    start = source.index("  $('changeSource').onclick = () => {")
+    snippet = source[start:source.index("\n  };\n", start) + 5]
+    code = """
+const run=(dirty,caching,answer)=>{const asked=[],events=[];
+ const confirm=m=>{asked.push(m);return answer;},location={reload(){events.push('reload');}};
+ const editor={dirty:()=>dirty,caching:()=>caching,leave(){events.push('leave');}};
+ const $=id=>(nodes[id]||(nodes[id]={}));const nodes={};const tr=k=>k;
+ (function(){""" + snippet + """})();
+ nodes.changeSource.onclick();return {asked,events};};
+console.log(JSON.stringify({clean:run(false,true,true),kept:run(true,true,true),lost:run(true,false,false)}));
+"""
+    proc = subprocess.run([NODE, "-e", code], check=True, capture_output=True, text=True, encoding="utf-8")
+    data = json.loads(proc.stdout)
+    assert data["clean"] == {"asked": [], "events": ["leave", "reload"]}
+    assert data["kept"] == {"asked": ["changeSourceUnsaved"], "events": ["leave", "reload"]}
+    assert data["lost"] == {"asked": ["changeSourceLost"], "events": []}
+    # Loading can be cancelled: nothing is set up until it finishes, so the cancel button stays enabled.
+    assert "$('loadcancel').onclick = () => location.reload();" in source
+    assert ".filter((n) => n.id !== 'loadcancel')" in source

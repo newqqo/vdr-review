@@ -478,3 +478,24 @@ def test_speaker_suggestions_are_checked_before_they_replace_the_current_ones():
         "suggestions.A1.1.spk）", "suggestions.A1.1.spk）", "suggestions.A1.x）", "suggestions.A1.1.score）", "suggestions）"]
     assert messages[5].startswith("講者建議檔格式不符，未匯入（")
     assert result["count"] == 2
+
+
+def test_clearing_this_case_copy_removes_it_and_stops_caching():
+    result = ui(r"""
+(async()=>{
+ await load(front());storage.set('bound-key_sugg','{}');
+ const before={cached:storage.has('bound-key'),caching:editor.caching()};
+ editor.state().A1[0].text='SYNTHETIC unsaved';editor.changed();
+ $('edclearcache').onclick();
+ editor.state().A1[0].text='SYNTHETIC later edit';editor.changed();
+ const unload={preventDefault(){this.prevented=true;}};listeners.beforeunload(unload);
+ editor.leave();const leaving={preventDefault(){this.prevented=true;}};listeners.beforeunload(leaving);
+ console.log(JSON.stringify({before,cached:storage.has('bound-key'),sugg:storage.has('bound-key_sugg'),caching:editor.caching(),
+  status:$('edsave').textContent,title:$('edsave').title,warned:!!unload.prevented,leftQuietly:!leaving.prevented}));
+})();
+""")
+    assert result["before"] == {"cached": True, "caching": True}
+    # Later edits are not written back, and leaving with unsaved work still warns until the page is told it is leaving.
+    assert not result["cached"] and not result["sugg"] and not result["caching"]
+    assert result["warned"] and result["leftQuietly"]
+    assert "本次不暫存到瀏覽器" in result["title"]

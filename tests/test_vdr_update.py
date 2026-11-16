@@ -375,3 +375,19 @@ def test_update_module_is_wired_into_the_page_and_every_string_exists():
 const keys={json.dumps(keys)};
 console.log(JSON.stringify(keys.filter(k=>!['zh-TW','en','ja','zh-CN'].every(l=>{{I.setLocale(l);return I.t(k)!==k;}}))));""")
     assert result == []
+
+
+def test_a_build_without_an_update_source_disables_the_button():
+    code = """
+globalThis.UPDATE_MANIFEST='';globalThis.location={protocol:'file:'};
+const U=require(%s+'/update.js');require(%s+'/i18n_ui.js');
+const nodes={},$=id=>nodes[id]||(nodes[id]={id,dataset:{},hidden:true,disabled:false,textContent:'',title:''});
+let fetched=0;globalThis.fetch=async()=>{fetched++;};
+U.init({$,version:'1.0.0',isDirty:()=>false});nodes.updateAction.onclick?.();
+console.log(JSON.stringify({url:U.MANIFEST_URL,disabled:nodes.updateAction.disabled,title:nodes.updateAction.title,
+ key:nodes.updateAction.dataset.i18nTitle,handler:typeof nodes.updateAction.onclick,fetched}));
+""" % (json.dumps(SRC.as_posix()), json.dumps(SRC.as_posix()))
+    out = subprocess.run([NODE, "-e", code], capture_output=True, text=True, encoding="utf-8", check=True)
+    result = json.loads(out.stdout)
+    assert result == {"url": "", "disabled": True, "title": "這個版本沒有設定更新來源，無法檢查更新",
+                      "key": "update.noSource", "handler": "undefined", "fetched": 0}

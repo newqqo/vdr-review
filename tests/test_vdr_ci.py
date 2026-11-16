@@ -164,7 +164,7 @@ def test_release_attaches_the_deployed_files_under_ascii_names():
     assert "name: release-files" in jobs["build"] and "name: release-files" in jobs["release"]
     assert "cp site/vdr-review.html site/version.json assets/" in jobs["release"]
     assert "cp site/*.zip assets/vdr-review-colleague.zip" in jobs["release"]
-    assert "--verify-tag" in jobs["release"] and "--clobber" in jobs["release"]
+    assert "--verify-tag" in jobs["release"]
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "`vdr-review.html`" in readme and "`vdr-review-colleague.zip`" in readme
 
@@ -184,3 +184,13 @@ def test_release_uses_the_same_toolchain_as_ci_and_no_build_cache():
         assert re.findall(pattern, ci) == re.findall(pattern, workflow), pattern
     assert "sudo apt-get install --yes --no-install-recommends ffmpeg" in workflow
     assert not re.search(r"^\s*cache:", workflow, flags=re.M)
+
+
+def test_a_released_version_is_never_overwritten_with_different_files():
+    workflow, _, jobs = release_workflow()
+    # Release files are never replaced; a re-run must rebuild the same bytes or stop before deploying.
+    assert "--clobber" not in workflow
+    build = jobs["build"]
+    assert build.index("build.py --site _site") < build.index("gh release download") < build.index("upload-pages-artifact@")
+    assert 'cmp "published/$f" "$built"' in build and "exit 1" in build
+    assert "grep -qxF" in jobs["release"]

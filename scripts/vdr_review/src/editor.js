@@ -202,7 +202,7 @@ const parseT=v=>{v=String(v).trim().replace(',','.');const p=v.split(':').map(Nu
 const srtT=s=>{const ms=Math.max(0,Math.round(s*1000)),h=Math.floor(ms/3600000),m=Math.floor(ms%3600000/60000),x=Math.floor(ms%60000/1000),r=ms%1000;return [h,m,x].map(n=>String(n).padStart(2,'0')).join(':')+','+String(r).padStart(3,'0')};
 const esc=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 let uid=1,state={},spks=DEFAULT_SPK.slice(),spkColor={};
-let wvPage=null,flashUntil=0,applying=false,previousProject=null,cacheOK=true,migrationInfo=null,importHistory=[];
+let wvPage=null,flashUntil=0,applying=false,previousProject=null,cacheOK=true,cacheOff=false,leaving=false,migrationInfo=null,importHistory=[];
 const files=createFileSession(args=>VDRProject.saveProject(args));
 let lastState={},lastContent='',fileMessage=()=>ui('review.unsaved'),flashContent=null;
 // Bind only editor-owned UI leaves. Updating a locale must never replace a cue
@@ -213,9 +213,9 @@ function staticText(node,key){return ownText(node,()=>tr(key));}
 function textSpan(parent,key){const n=document.createElement('span');parent.appendChild(n);return staticText(n,key);}
 const content=()=>JSON.stringify({state,spks,uid,spkColor,extra:ctx.extra.get(),import_history:importHistory});
 function status(){
- $('edsave').title=tr(cacheOK?'cacheHelp':'cacheFailureHelp');
+ $('edsave').title=tr(cacheOff?'cacheOffHelp':cacheOK?'cacheHelp':'cacheFailureHelp');
  if(Date.now()<flashUntil)return;
- $('edsave').textContent=(files.dirty()?tr('unsavedDot'):fileMessage())+(cacheOK?'':tr('cacheFailed'));
+ $('edsave').textContent=(files.dirty()?tr('unsavedDot'):fileMessage())+(cacheOff?tr('cacheOff'):cacheOK?'':tr('cacheFailed'));
 }
 function project(){return VDRProject.createProject({version:4,tool:'VDR核聽工具',
  tool_build:typeof BUILD_INFO!=='undefined'?BUILD_INFO:null,recording_id:ctx.recordingId,
@@ -226,7 +226,7 @@ function save(){if(applying)return;
  const reset=invalidateReviewedChanges(lastState,state),now=content();
  if(now!==lastContent){files.changed();lastContent=now;}
  lastState=JSON.parse(JSON.stringify(state));
- try{localStorage.setItem(KEY,JSON.stringify(project()));cacheOK=true;}catch(e){cacheOK=false;}
+ if(!cacheOff)try{localStorage.setItem(KEY,JSON.stringify(project()));cacheOK=true;}catch(e){cacheOK=false;}
  for(const c of reset)updRow(c);if(reset.length){updTool();drawStrip();}
  status();ctx.onChange?.();
 }
@@ -871,13 +871,16 @@ $('imSug').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)
  let d,n;try{if(f.size>20*1024*1024)throw editorError('suggestionsInvalid',{detail:'size'});d=JSON.parse((await f.text()).replace(/^﻿/,''));
   if(!d||typeof d!=='object'||!('suggestions' in d)){alert(tr('notSuggestions'));return}n=checkSuggestions(d);}
  catch(err){alert(err?.i18nKey?errorText(err):tr('suggestionsInvalid',{detail:errorText(err)}));return}
- SUG=d;try{localStorage.setItem(SKEY,JSON.stringify(d))}catch(_){}flash(()=>tr('suggestionsImported',{count:n,method:d.method||''}));render()};
+ SUG=d;if(!cacheOff)try{localStorage.setItem(SKEY,JSON.stringify(d))}catch(_){}flash(()=>tr('suggestionsImported',{count:n,method:d.method||''}));render()};
+// Removes this recording's browser copies and stops writing new ones until the page is reloaded.
+function stopCache(){cacheOff=true;for(const k of [KEY,SKEY,...(ctx.legacy||[]).flatMap(L=>[L.key,L.key+':extra'])]){try{localStorage.removeItem(k)}catch(_){}}status();}
+$('edclearcache').onclick=()=>{finishCompose();if(!confirm(tr('clearCacheConfirm',{unsaved:files.dirty()?tr('clearCacheUnsaved'):''})))return;stopCache();flash(()=>tr('cacheCleared'));};
 $('edreset').onclick=()=>{finishCompose();if(!cues().length){flash(()=>tr('channelEmpty'));return}if(confirm(tr('clearConfirm',{channel:sel.value}))){snap();state[sel.value]=[];active=null;render();save()}};
 $('exWav').onclick=async()=>{const button=$('exWav');button.disabled=true;flash(()=>tr('audioBusy'));
  try{await ctx.exportWav(sel.value);flash(()=>tr('audioDone'));}
  catch(error){flash(()=>tr('audioFailed',{message:errorText(error)}));}finally{button.disabled=false;}};
 renderSpk();render();lastState=JSON.parse(JSON.stringify(state));lastContent=content();status();if(resumed)flash(resumed);
-window.addEventListener('beforeunload',e=>{finishCompose();if(files.dirty()){e.preventDefault();e.returnValue=tr('unloadUnsaved');}});
+window.addEventListener('beforeunload',e=>{finishCompose();if(!leaving&&files.dirty()){e.preventDefault();e.returnValue=tr('unloadUnsaved');}});
 const oldBox=$('legacyProgress');oldBox.hidden=oldProgress.length===0;
 if(oldProgress.length){
  const picker=$('legacyChoice');picker.innerHTML='';
@@ -920,7 +923,7 @@ function refreshLanguage(){
  if(Date.now()<flashUntil&&flashContent)$('edsave').textContent=flashContent();
 }
 const disposeI18n=VDRI18n.onChange(refreshLanguage);
-return {state:()=>state,render,changed:save,dirty:files.dirty,disposeI18n,refreshMedia(){drawStrip();drawWave();renderVhf();}};
+return {state:()=>state,render,changed:save,dirty:files.dirty,disposeI18n,stopCache,caching:()=>!cacheOff,leave(){finishCompose();leaving=true;},refreshMedia(){drawStrip();drawWave();renderVhf();}};
 }
 const api={init,createFileSession,checkSuggestions,invalidateReviewedChanges,parseSrt,readSrtFile,validateTranscriptionReceipt,srtAlignment,countSrtOverlaps,waveWindow,waveTimeAt,activityWindow};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Editor=api;

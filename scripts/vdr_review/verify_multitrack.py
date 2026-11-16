@@ -144,8 +144,8 @@ def wait_waves(page, expected: int, timeout: float = 180) -> dict:
 
 def load(page, source: Path, expected: int) -> dict:
     page.locator("#fdir").set_input_files(str(source), timeout=120000)
-    wait_until(page, lambda: not page.locator("#loadbtn").is_disabled()
-               or page.locator("#dirsum").inner_text() != "檢查錄音格式與日期中…", "multitrack source index")
+    wait_until(page, lambda: page.locator("#dirsum").is_visible()
+               and page.locator("#dirsum").get_attribute("aria-busy") is None, "multitrack source index")
     assert not page.locator("#loadbtn").is_disabled(), page.locator("#dirsum").inner_text()
     page.locator("#allRecording").click()
     page.locator("#loadbtn").click()

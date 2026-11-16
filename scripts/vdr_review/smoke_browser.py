@@ -47,6 +47,51 @@ def fixtures(out: Path) -> tuple[Path, Path]:
     return old.parents[1], modern.parents[2]
 
 
+def load_folder(page, folder: Path) -> None:
+    page.locator("#fdir").set_input_files(str(folder))
+    page.wait_for_function("!document.getElementById('loadbtn').disabled")
+    page.locator("#loadbtn").click()
+    page.locator("#mainpane").wait_for(state="visible", timeout=60000)
+
+
+def check_privacy_controls(browser, html: Path, folder: Path) -> dict:
+    """No-basemap before loading, change source, and clearing the browser copies, in a fresh profile."""
+    context = browser.new_context(viewport={"width": 1440, "height": 1080})
+    network, errors = [], []
+    context.route("http://**/*", lambda route: (network.append(route.request.url), route.abort()))
+    context.route("https://**/*", lambda route: (network.append(route.request.url), route.abort()))
+    page = context.new_page()
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("dialog", lambda dialog: dialog.accept())
+    page.goto(html.as_uri())
+    page.locator("#basemap").select_option("blank")
+    load_folder(page, folder)
+    page.wait_for_timeout(1500)
+    # Chosen before loading, "no basemap" means the case area is never requested.
+    assert not network, network
+    assert page.locator("#map").get_attribute("data-basemap") == "不載入底圖（不連網）"
+    page.locator("#edcompose").fill("SYNTHETIC kept in the browser copy")
+    page.locator("#edcompose").press("Enter")
+    page.locator("#changeSource").click()
+    page.locator("#loadpane").wait_for(state="visible")
+    assert page.locator("#basemap").input_value() == "blank", "the basemap choice is remembered"
+    load_folder(page, folder)
+    page.wait_for_function("document.querySelectorAll('#edlist .tx').length===1")
+    assert page.locator("#edlist .tx").first.input_value() == "SYNTHETIC kept in the browser copy"
+    page.locator("#about > summary").click()
+    page.locator("#clearCaches").click()
+    assert page.locator("#cachemsg").inner_text().startswith("已清除 1 份案件暫存；目前開啟的案件")
+    page.locator("#changeSource").click()
+    page.locator("#loadpane").wait_for(state="visible")
+    load_folder(page, folder)
+    page.wait_for_timeout(500)
+    assert page.locator("#edlist .tx").count() == 0, "a cleared case must not come back"
+    assert not network and not errors, (network, errors)
+    context.close()
+    return {"no_basemap_requests": 0, "basemap_remembered": True, "change_source_restores_cache": True,
+            "cleared_cache_not_restored": True}
+
+
 def run(html: Path, executable: str, out: Path) -> dict:
     old, modern = fixtures(out)
     print('Synthetic fixtures ready; starting isolated browser driver', flush=True)
@@ -198,6 +243,8 @@ def run(html: Path, executable: str, out: Path) -> dict:
         # After loading, the only requests allowed are basemap tiles (the "no basemap" layer avoids them).
         assert all(url.startswith("https://wmts.nlsc.gov.tw/wmts/") for url in network), network
         assert not errors, errors
+        result["privacy_controls"] = check_privacy_controls(browser, html, old)
+        print('Basemap, change-source and cache controls passed', flush=True)
         browser.close()
     return result
 

@@ -3,6 +3,8 @@ name: vdr-release
 # Only a version tag publishes. Run by hand to release an existing tag again, for
 # example after a failed deployment; running from main also passes the default
 # github-pages rule, which allows only the default branch until a tag rule is added.
+# Builds are reproducible, so releasing a tag again must give the same files; a
+# version whose release files would change is refused before anything is deployed.
 on:
   push:
     tags: ["v*"]
@@ -68,6 +70,22 @@ jobs:
       - name: Build the site
         run: python scripts/vdr_review/build.py --site _site
 
+      - name: Refuse to change files an existing release already published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir published
+          if gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir published 2> /dev/null; then
+            set -- _site/*.zip
+            for f in vdr-review.html version.json vdr-review-colleague.zip; do
+              built="_site/$f"
+              if [ "$f" = vdr-review-colleague.zip ]; then built="$1"; fi
+              if [ -e "published/$f" ]; then
+                cmp "published/$f" "$built" || { echo "::error::$RELEASE_TAG already published a different $f; release a new version instead"; exit 1; }
+              fi
+            done
+          fi
+
       - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
@@ -119,7 +137,11 @@ jobs:
           cp site/vdr-review.html site/version.json assets/
           cp site/*.zip assets/vdr-review-colleague.zip
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" assets/* --clobber --repo "$GITHUB_REPOSITORY"
+            # Never overwrite: the build job checked that existing files are unchanged, so add only missing ones.
+            existing="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            for f in assets/*; do
+              if ! grep -qxF "$(basename "$f")" <<< "$existing"; then gh release upload "$RELEASE_TAG" "$f" --repo "$GITHUB_REPOSITORY"; fi
+            done
           else
             gh release create "$RELEASE_TAG" assets/* --verify-tag --generate-notes --title "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
           fi
