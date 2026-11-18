@@ -73,8 +73,10 @@ function parseSrt(text){
   if(!m)throw editorError('srtTimeFormat',{number:i+1});
   const g=m.slice(1).map(Number),s=g[0]*3600+g[1]*60+g[2]+Number(m[4].padEnd(3,'0'))/1000,
    e=g[4]*3600+g[5]*60+g[6]+Number(m[8].padEnd(3,'0'))/1000;
-  if(g[1]>59||g[2]>59||g[5]>59||g[6]>59||!Number.isFinite(s)||!Number.isFinite(e)||e<=s||e>3155760000)
-   throw editorError('srtTimeInvalid',{number:i+1});
+  // A zero-length entry (end = start) is common in AI transcripts: it is kept and flagged for timing review on
+  // import. A minute or second above 59, an end before the start, or an absurd time still stops the import.
+  const reason=g[1]>59||g[2]>59||g[5]>59||g[6]>59?'srtReasonSixty':!Number.isFinite(s)||!Number.isFinite(e)||e>3155760000?'srtReasonRange':e<s?'srtReasonReversed':null;
+  if(reason)throw editorError('srtTimeInvalid',{number:i+1,line:lines[k].trim().slice(0,80),reason:tr(reason)},{reason:'editor.'+reason});
   const body=lines.slice(k+1).join('\n').trim();
   if(body.includes('-->')||body.length>1000000)throw editorError('srtBodyInvalid',{number:i+1});
   got.push({s,e,text:body,no:k===1?lines[0].trim():null});
@@ -124,9 +126,10 @@ function validateTranscriptionReceipt(data,recordingId,channels){
   display_tz_hours:data.display_tz_hours,corrected_start_utc:new Date((start+correction.offset_s)*1000).toISOString(),
   time_correction:{offset_s:correction.offset_s,basis:correction.basis},audio_file:data.audio_file,audio_sha256:data.audio_sha256.toLowerCase()};
 }
+const timingHelpKey=c=>c.timing_review?.reason==='srt_zero_duration'?'timingHelpSrt':'timingHelp';
 function srtAlignment(got,options){
  const o=options||{};
- if(!Array.isArray(got)||!got.length||got.some(c=>!Number.isFinite(c.s)||!Number.isFinite(c.e)||c.s<0||c.e<=c.s))throw editorError('subtitleRangeInvalid');
+ if(!Array.isArray(got)||!got.length||got.some(c=>!Number.isFinite(c.s)||!Number.isFinite(c.e)||c.s<0||c.e<c.s))throw editorError('subtitleRangeInvalid');
  const offset=o.offsetSeconds==null?0:o.offsetSeconds;
  if(!Number.isFinite(o.t0)||!Number.isFinite(offset)||Math.abs(offset)>3600||
   !Number.isFinite(o.displayTzHours)||Math.abs(o.displayTzHours)>14||!Array.isArray(o.channels)||!o.channels.includes(o.channel))
@@ -283,7 +286,7 @@ function playbackRows(force=false){
 }
 function rowHTML(c,i){const showOrig=c.orig&&c.orig!==c.text;
  return '<div class="ehd"><button class="etime" data-a="play" title="'+esc(ui('action.playCue'))+'（Ctrl+Enter）">▶ '+fmtT(c.start)+'</button><span class="elt">'+fmtLT(c.start)+'</span>'+
- '<span class="espk" style="--c:'+color(c.spk)+'"'+(c.spk?'':' data-i18n="review.unassignedSpeaker"')+'>'+esc(c.spk||ui('review.unassignedSpeaker'))+'</span><span class="est '+STCLS[c.st]+'" data-i18n="'+['review.unreviewed','review.reviewed','review.partial','review.unclear'][c.st]+'" data-i18n-title="'+['review.unreviewed','review.reviewed','review.partial','review.unclear'][c.st]+'" title="'+esc(STATUS(c.st))+'">'+esc(STATUS(c.st))+'</span><span class="cue-playstate" hidden></span>'+(c.timing_review?'<span class="eflag" data-i18n="review.timingPending" data-i18n-title="editor.timingHelp" title="'+esc(tr('timingHelp'))+'">'+esc(ui('review.timingPending'))+'</span>':'')+(c.ovl?'<span class="eflag" data-i18n="editor.overlap">'+esc(tr('overlap'))+'</span>':'')+(c.repOf?'<span class="eflag" data-i18n="editor.repeat">'+esc(tr('repeat'))+'</span>':'')+(()=>{const g=sugOf(c);if(!g||(c.spk&&!c.ovl)||g.spk===c.spk)return'';return '<button class="esug'+(g.confident?' hi':'')+'" data-a="acc" title="'+esc(tr('suggestionTitle',{score:g.score,margin:g.margin,caution:g.confident?'':tr('suggestionCaution')}))+'">'+esc(tr('suggestion',{speaker:g.spk,score:(+g.score).toFixed(2)}))+'</button>'})()+'<span class="eno">#'+(i+1)+'</span></div>'+
+ '<span class="espk" style="--c:'+color(c.spk)+'"'+(c.spk?'':' data-i18n="review.unassignedSpeaker"')+'>'+esc(c.spk||ui('review.unassignedSpeaker'))+'</span><span class="est '+STCLS[c.st]+'" data-i18n="'+['review.unreviewed','review.reviewed','review.partial','review.unclear'][c.st]+'" data-i18n-title="'+['review.unreviewed','review.reviewed','review.partial','review.unclear'][c.st]+'" title="'+esc(STATUS(c.st))+'">'+esc(STATUS(c.st))+'</span><span class="cue-playstate" hidden></span>'+(c.timing_review?'<span class="eflag" data-i18n="review.timingPending" data-i18n-title="editor.'+timingHelpKey(c)+'" title="'+esc(tr(timingHelpKey(c)))+'">'+esc(ui('review.timingPending'))+'</span>':'')+(c.ovl?'<span class="eflag" data-i18n="editor.overlap">'+esc(tr('overlap'))+'</span>':'')+(c.repOf?'<span class="eflag" data-i18n="editor.repeat">'+esc(tr('repeat'))+'</span>':'')+(()=>{const g=sugOf(c);if(!g||(c.spk&&!c.ovl)||g.spk===c.spk)return'';return '<button class="esug'+(g.confident?' hi':'')+'" data-a="acc" title="'+esc(tr('suggestionTitle',{score:g.score,margin:g.margin,caution:g.confident?'':tr('suggestionCaution')}))+'">'+esc(tr('suggestion',{speaker:g.spk,score:(+g.score).toFixed(2)}))+'</button>'})()+'<span class="eno">#'+(i+1)+'</span></div>'+
  '<textarea class="tx" rows="1" data-i18n-placeholder="workbench.inputPlaceholder" placeholder="'+esc(ui('workbench.inputPlaceholder'))+'" data-i18n-title="workbench.inputTitle" title="'+esc(ui('workbench.inputTitle'))+'"></textarea>'+(showOrig?'<div class="eorig"><span data-i18n="editor.original">'+esc(tr('original'))+'</span>'+esc(c.orig)+'</div>':'')}
 function render(){const f=$('edflt').value,q=$('edq').value.trim();const keepTop=list.scrollTop;list.innerHTML='';
  const arr=cues();let shown=0;
@@ -629,7 +632,7 @@ function csvText(){const q=v=>{let s=String(v??'');if(/^[\s]*[=+@-]/.test(s))s="
  for(const ch of Object.keys(state).sort())(state[ch]||[]).forEach((c,i)=>{
   const outside=c.start<0||c.end>(ctx.dur||Infinity)||!CH.includes(ch),absent=c.end<=0||c.start>=(ctx.dur||Infinity)||!CH.includes(ch),pending=PENDING(ch),qa=absent?tr('qaNotLoaded'):
    (pending?tr(ov(ch,c)?'qaIndexGap':'qaIndexClear')+tr('qaPending'):tr(ov(ch,c)?'qaGap':'qaClear'))+(outside?tr('qaOutside'):'');
-  rows.push([ch,i+1,fmtT2(c.start),fmtT2(c.end),fmtDate(c.start),o?fmtDate(c.start,o):'',c.spk,c.text,STATUS(c.st),c.ovl?tr('yes'):'',qa+(c.timing_review?tr('qaTiming'):''),c.orig]);
+  rows.push([ch,i+1,fmtT2(c.start),fmtT2(c.end),fmtDate(c.start),o?fmtDate(c.start,o):'',c.spk,c.text,STATUS(c.st),c.ovl?tr('yes'):'',qa+(c.timing_review?tr(c.timing_review.reason==='srt_zero_duration'?'qaTimingSrt':'qaTiming'):''),c.orig]);
  });
  return rows.map(r=>r.map(q).join(',')).join('\r\n');}
 const projectName=()=>ctx.NAME+tr('projectSuffix');
@@ -815,12 +818,12 @@ function alignment(){if(!pendingSrt)throw editorError('srtSelectFirst');
   t0:T0,displayTzHours:LT/3600,offsetSeconds:OFS(),localStart:srtLocalStart.value});}
 function previewSrt(){ownText(srtError,'');manualRow.hidden=srtOrigin.value!=='manual';manualRow.style.display=manualRow.hidden?'none':'block';srtLocalStart.disabled=manualRow.hidden;
  try{const a=alignment(),r=a.receipt,existing=state[srtChannel.value]||[],overlaps=countSrtOverlaps(pendingSrt.got,existing,a.shift),
-   outside=pendingSrt.got.filter(c=>c.s+a.shift<0||c.e+a.shift>(ctx.dur||Infinity)).length;
+   outside=pendingSrt.got.filter(c=>c.s+a.shift<0||c.e+a.shift>(ctx.dur||Infinity)).length,zero=pendingSrt.got.filter(c=>c.e===c.s).length;
   const subtitleFile=pendingSrt.file,subtitleCount=pendingSrt.got.length,targetChannel=srtChannel.value;
   ownText(srtPreview,()=>tr('srtPreviewFile',{file:subtitleFile,count:subtitleCount,channel:targetChannel})+
    (r?tr('srtPreviewReceipt',{file:r.audio_file,hash:r.audio_sha256}):tr('srtManualWarning'))+
    tr('srtPreviewRange',{zero:fmtDate(a.shift,OFS()),start:fmtDate(a.start,OFS()),end:fmtDate(a.end,OFS())})+
-   (existing.length?tr('srtExisting',{count:existing.length,overlaps}):'')+(outside?tr('srtOutside',{count:outside}):'')+tr('srtVerify'));
+   (existing.length?tr('srtExisting',{count:existing.length,overlaps}):'')+(outside?tr('srtOutside',{count:outside}):'')+(zero?tr('srtPreviewZero',{count:zero}):'')+tr('srtVerify'));
   srtApply.disabled=false;
  }catch(e){ownText(srtPreview,'');ownText(srtError,()=>errorText(e));srtApply.disabled=true;}}
 function refreshSrtOrigins(preferred=null){
@@ -859,13 +862,17 @@ srtApply.onclick=()=>{
    imported_at_utc:new Date().toISOString(),method:a.receipt?'export_receipt':'manual_local_time',zero_source_utc:a.zero_utc,
    display_tz_hours:LT/3600,import_time_correction:{offset_s:OFS(),basis:(ctx.extra.get()||{}).time_offset_basis||''}};
   if(a.receipt){origin.audio_file=a.receipt.audio_file;origin.audio_sha256=a.receipt.audio_sha256;}
-  const additions=got.map((c,i)=>({id:uid+i,start:c.s+a.shift,end:c.e+a.shift,spk:'',text:c.text,orig:c.text,origNo:c.no,st:0,ovl:false,srt_source:origin}));
+  const additions=got.map((c,i)=>{const start=c.s+a.shift,cue={id:uid+i,start,end:c.e+a.shift,spk:'',text:c.text,orig:c.text,origNo:c.no,st:0,ovl:false,srt_source:origin};
+   // Same rule as legacy zero-length entries: a 0.1 s placeholder that must be adjusted before review.
+   if(c.e===c.s){cue.end=start+0.1;cue.timing_review={reason:'srt_zero_duration',original_start:start,original_end:start,placeholder_seconds:0.1,origin_t0_utc:new Date(T0*1000).toISOString()};}
+   return cue;});
+  const zero=additions.filter(c=>c.timing_review).length;
   // Source/format/alignment checks and confirmation have all completed before
   // changing a channel, recording an undo point or allocating permanent IDs.
   UNDO.push({ch,data:JSON.stringify(arr),active:ch===sel.value?active:null});if(UNDO.length>40)UNDO.shift();
   state[ch]=arr.concat(additions).sort((x,y)=>x.start-y.start||x.end-y.end);uid+=got.length;
   if(sel.value!==ch){sel.value=ch;sel.dispatchEvent(new Event('change'));}active=null;
-  save();render();pendingSrt=null;srtPanel.hidden=true;flash(()=>tr('srtDone',{count:got.length,channel:ch}));
+  save();render();pendingSrt=null;srtPanel.hidden=true;flash(()=>zero?tr('srtDoneZero',{count:got.length,channel:ch,zero}):tr('srtDone',{count:got.length,channel:ch}));
  }catch(error){ownText(srtError,()=>tr('srtPending',{message:errorText(error)}));srtApply.disabled=true;}};
 $('imSug').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
  let d,n;try{if(f.size>20*1024*1024)throw editorError('suggestionsInvalid',{detail:'size'});d=JSON.parse((await f.text()).replace(/^﻿/,''));

@@ -190,7 +190,6 @@ def test_old_projects_without_srt_hash_remain_loadable_and_mergeable():
 @pytest.mark.parametrize("suffix", [
     "not an SRT block", "2\n00:00:02,000 --> invalid\nwords",
     "2\n00:60:00,000 --> 01:01:00,000\nwords",
-    "2\n00:00:02,000 --> 00:00:02,000\nwords",
     "2\n00:00:03,000 --> 00:00:02,000\nwords",
     "2\n00:00:02,000 --> 00:00:03,000\nwords\u0000",
 ])
@@ -199,6 +198,14 @@ def test_malformed_block_rejects_whole_srt_instead_of_silently_skipping(suffix):
     result = pure("let error='';try{E.parseSrt(" + json.dumps(text) + ")}catch(e){error=e.message;}console.log(JSON.stringify({error}));")
     assert result["error"]
 
+
+
+def test_zero_length_block_is_kept_for_timing_review_not_skipped():
+    # AI transcripts often give a short word the same start and end. It is neither dropped nor fatal:
+    # it is kept with its text, and the import flags it for timing review.
+    text = "1\n00:00:00,000 --> 00:00:01,000\nvalid\n\n2\n00:00:02,000 --> 00:00:02,000\nwords"
+    result = pure("console.log(JSON.stringify(E.parseSrt(" + json.dumps(text) + ")));")
+    assert result == [{"s": 0, "e": 1, "text": "valid", "no": "1"}, {"s": 2, "e": 2, "text": "words", "no": "2"}]
 
 def test_receipt_uses_raw_source_time_even_when_current_correction_changed():
     result = pure(r"""

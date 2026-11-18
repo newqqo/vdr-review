@@ -50,7 +50,9 @@ console.log(JSON.stringify({error,parsed:E.parseSrt(source),source}));
 """)
     assert needle in result["error"]["message"]
     assert result["error"]["key"] == "editor.srtTimeInvalid"
-    assert result["error"]["params"] == {"number": 1}
+    # The message names the offending time line, so nobody has to hunt for it in a long file.
+    assert result["error"]["params"]["number"] == 1
+    assert result["error"]["params"]["line"] == "00:00:02,000 --> 00:00:01,000"
     assert result["parsed"] == [{"s": 1, "e": 2, "text": "船長 / 左满舵 / 面舵 / Play", "no": "1"}]
 
 

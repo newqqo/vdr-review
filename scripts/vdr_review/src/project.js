@@ -84,7 +84,7 @@ function validateTimingReview(value, cue) {
   const review = record(value, label('label.timingReview'));
   const fields = ['reason', 'original_start', 'original_end', 'placeholder_seconds', 'origin_t0_utc'];
   if (Object.keys(review).length !== fields.length || fields.some(k => !own(review, k)) ||
-      review.reason !== 'legacy_zero_duration' || review.placeholder_seconds !== 0.1)
+      !['legacy_zero_duration', 'srt_zero_duration'].includes(review.reason) || review.placeholder_seconds !== 0.1)
     fail('project.timingFlag');
   const start = finite(review.original_start, label('label.originalStart')), end = finite(review.original_end, label('label.originalEnd'));
   if (start !== end || Math.abs(start) > 3155760000 || isoTime(review.origin_t0_utc) !== review.origin_t0_utc ||

@@ -307,3 +307,51 @@ def test_csv_has_full_dates_and_escapes_spreadsheet_formulas_without_altering_ma
     assert "未載入此時段，未檢查" in result["csv"]
     assert '"\'=HYPERLINK(""x"")"' in result["csv"]
     assert result["original"] == '=HYPERLINK("x")'
+
+
+def test_zero_length_srt_entries_import_flagged_for_timing_review():
+    result = in_editor(r"""
+(async()=>{
+ // AI transcripts often give very short words the same start and end.
+ const srt='1\n00:00:01,000 --> 00:00:02,000\nSYNTHETIC first\n\n2\n00:00:03,500 --> 00:00:03,500\nSYNTHETIC zero\n\n3\n00:00:04,000 --> 00:00:05,000\nSYNTHETIC third';
+ const bytes=new TextEncoder().encode(srt);
+ await $('imSrt').onchange({target:{files:[{name:'syn.srt',size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer}],value:'x'}});
+ const panel=$('imSrtBtn').adjacent;
+ function field(id,node=panel){if(node.id===id)return node;for(const c of node.children){const n=field(id,c);if(n)return n;}}
+ const date=field('srtLocalStart'),apply=field('srtImportApply');
+ date.value='2026-01-01T08:00:00';date.oninput();
+ const preview=field('srtImportPreview').textContent;
+ apply.onclick();
+ const cues=editor.state().A1,zero=cues[1],cached=JSON.parse(storage.get('bound-key')).state.A1[1];
+ console.log(JSON.stringify({preview,count:cues.length,zero,cached,message:$('edsave').textContent,
+  others:[cues[0].timing_review,cues[2].timing_review]}));
+})();
+""")
+    assert "其中 1 段開始等於結束" in result["preview"] and result["count"] == 3
+    zero = result["zero"]
+    assert zero["start"] == 3.5 and abs(zero["end"] - 3.6) < 1e-9 and zero["st"] == 0 and zero["text"] == "SYNTHETIC zero"
+    assert zero["timing_review"] == {"reason": "srt_zero_duration", "original_start": 3.5, "original_end": 3.5,
+                                     "placeholder_seconds": 0.1, "origin_t0_utc": "2026-01-01T00:00:00.000Z"}
+    # The flagged entry passes the case-file check, so the browser copy and saving keep working.
+    assert result["cached"]["timing_review"]["reason"] == "srt_zero_duration"
+    assert "其中 1 句時間待校" in result["message"] and result["others"] == [None, None]
+
+
+@pytest.mark.parametrize("line,reason", [("00:00:01,000 --> 00:00:00,500", "結束早於開始"),
+                                         ("00:00:60,000 --> 00:01:01,000", "分或秒超過 59")])
+def test_other_bad_srt_times_still_stop_the_import_and_name_the_line(line, reason):
+    result = run_node("const E=require(" + json.dumps(SRC + "/editor.js") + ");\n" + r"""
+const srt='1\n00:00:00,000 --> 00:00:01,000\nok\n\n2\nLINE\nbad';
+try{E.parseSrt(srt);console.log(JSON.stringify({imported:true}));}catch(e){console.log(JSON.stringify({key:e.i18nKey,message:e.message}));}
+""".replace("LINE", line))
+    assert result["key"] == "editor.srtTimeInvalid"
+    assert result["message"] == f"第 2 段字幕起訖時間無效（{line}：{reason}），整份未匯入"
+
+
+def test_case_file_accepts_only_known_timing_review_reasons():
+    result = run_node("const P=require(" + json.dumps(SRC + "/project.js") + ");\n" + r"""
+const cue=reason=>({id:1,start:3.5,end:3.6,text:'x',spk:'',st:0,timing_review:{reason,original_start:3.5,original_end:3.5,placeholder_seconds:0.1,origin_t0_utc:'2026-01-01T00:00:00.000Z'}});
+const doc=reason=>({version:4,recording_id:'a'.repeat(64),t0_utc:'2026-01-01T00:00:00.000Z',tz_hours:8,state:{A1:[cue(reason)]},spks:[],uid:2,extra:{}});
+const out={};for(const r of ['legacy_zero_duration','srt_zero_duration','made_up']){try{P.createProject(doc(r));out[r]='ok';}catch(e){out[r]=e.i18nKey;}}
+console.log(JSON.stringify(out));""")
+    assert result == {"legacy_zero_duration": "ok", "srt_zero_duration": "ok", "made_up": "core.project.timingFlag"}
